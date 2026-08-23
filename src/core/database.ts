@@ -74,10 +74,32 @@ export class MemoryDatabase {
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
-      CREATE INDEX IF NOT EXISTS idx_chunks_file ON chunks(file_id);
-      CREATE INDEX IF NOT EXISTS idx_chunks_symbol ON chunks(symbol_name);
-      CREATE INDEX IF NOT EXISTS idx_chunks_heading ON chunks(heading);
     `);
+
+    try {
+      this.db.exec("ALTER TABLE chunks ADD COLUMN symbol_name TEXT;");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE chunks ADD COLUMN symbol_kind TEXT;");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE chunks ADD COLUMN heading TEXT;");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE chunks ADD COLUMN start_line INTEGER;");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE chunks ADD COLUMN end_line INTEGER;");
+    } catch (e) {}
+    try {
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_chunks_file ON chunks(file_id);");
+    } catch (e) {}
+    try {
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_chunks_symbol ON chunks(symbol_name);");
+    } catch (e) {}
+    try {
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_chunks_heading ON chunks(heading);");
+    } catch (e) {}
 
     try {
       this.db.exec("ALTER TABLE chunks ADD COLUMN modal_type TEXT DEFAULT 'code';");

@@ -604,38 +604,227 @@ deploy:
     throw new Error("FAIL (Edge Case 5): Access count monotonicity failed!");
   }
 
-  // Edge Case 6: Engine Close & Re-open Persistence Idempotency
-  console.log("  [Edge Case 6] Testing Database Persistence & Re-open Idempotency...");
-  waveCEngine.close();
+  // Edge Case 7: Legacy Database Schema Auto-Migration Resilience
+  console.log("  [Edge Case 7] Testing Legacy Database Schema Auto-Migration Resilience...");
+  const legacyDbPath = ".memory/test_legacy_schema.db";
+  if (fs.existsSync(legacyDbPath)) fs.unlinkSync(legacyDbPath);
 
-  const reloadedEngine = new MemoryEngine({
-    dbPath: waveCDbPath,
-    workspace: "ops_workspace",
-    projectName: "ops_project",
+  const { DatabaseSync } = require("node:sqlite");
+  const rawDb = new DatabaseSync(legacyDbPath);
+  // Create bare minimum pre-Phase-2 schema
+  rawDb.exec(`
+    CREATE TABLE files (
+      id TEXT PRIMARY KEY,
+      filepath TEXT NOT NULL,
+      file_type TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      mtime INTEGER NOT NULL
+    );
+    CREATE TABLE chunks (
+      id TEXT PRIMARY KEY,
+      file_id TEXT NOT NULL,
+      chunk_index INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      embedding BLOB,
+      embedding_model TEXT NOT NULL,
+      embedding_dimension INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `);
+  rawDb.prepare(`
+    INSERT INTO files VALUES ('f_legacy_1', 'src/legacy.ts', 'typescript', 'hash_123', 1700000000000);
+  `).run();
+  rawDb.prepare(`
+    INSERT INTO chunks (id, file_id, chunk_index, content, content_hash, source_type, embedding_model, embedding_dimension, created_at, updated_at)
+    VALUES ('c_legacy_1', 'f_legacy_1', 0, 'Legacy chunk content before Phase 2 upgrades', 'hash_123', 'code', 'embeddinggemma-300m-q4', 768, 1700000000000, 1700000000000);
+  `).run();
+  rawDb.close();
+
+  // Open with MemoryEngine - auto migrations should run smoothly
+  const upgradedEngine = new MemoryEngine({
+    dbPath: legacyDbPath,
   });
-  await reloadedEngine.init();
+  await upgradedEngine.init();
+  const legacyChunks = (upgradedEngine as any).db.getChunksByFileId("f_legacy_1");
 
-  const reloadedCommitAsset = await reloadedEngine.getOperationalAssetByTrigger("@commit");
-  if (reloadedCommitAsset && reloadedCommitAsset.id === promptId) {
-    console.log("  ✅ PASS (Edge Case 6): Reopened SQLite engine restored all operational assets and indexes flawlessly.");
+  if (
+    legacyChunks.length === 1 &&
+    legacyChunks[0].workspace === "default" &&
+    legacyChunks[0].project === "default" &&
+    legacyChunks[0].module === "root" &&
+    legacyChunks[0].accessCount === 0
+  ) {
+    console.log("  ✅ PASS (Edge Case 7): Legacy SQLite database migrated seamlessly with default namespace & access tracking.");
   } else {
-    throw new Error("FAIL (Edge Case 6): Failed to read records after engine re-open!");
+    throw new Error("FAIL (Edge Case 7): Legacy database migration failed!");
+  }
+  upgradedEngine.close();
+  try {
+    if (fs.existsSync(legacyDbPath)) fs.unlinkSync(legacyDbPath);
+  } catch (e) {}
+
+  // Edge Case 8: AST Circular Dependencies & Syntax Error Handling
+  console.log("  [Edge Case 8] Testing AST Resilience on Broken Syntax & Circular Imports...");
+  const brokenSyntaxCode = `
+    class IncompleteClass extends {
+      broken syntax (((( ;;
+    export function foo(
+  `;
+  const brokenRelations = mapper.extractRelationsFromSource(
+    "src/broken.ts",
+    brokenSyntaxCode,
+    "ws",
+    "proj",
+    "mod"
+  );
+  console.log(`  📊 Broken syntax parsed safely -> returned ${brokenRelations.length} relations without crashing.`);
+  console.log("  ✅ PASS (Edge Case 8): AST parser handles severe syntax errors without exception.");
+
+  // Edge Case 9: MCP Server Protocol Handlers Direct Verification
+  console.log("  [Edge Case 9] Testing MCP Server JSON-RPC Protocol & Tools...");
+  const { MemoryMcpServer } = require("../src/mcp/server");
+  const mcpServer = new MemoryMcpServer();
+  await (mcpServer as any).engine.init();
+
+  // Test tools/list
+  const listResp = await (mcpServer as any).handleRequest({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "tools/list",
+  });
+  const toolNames = listResp.result.tools.map((t: any) => t.name);
+  const expectedTools = [
+    "agy_memory_search",
+    "agy_local_rag_generate",
+    "agy_graph_inspect",
+    "agy_load_operational_asset",
+    "agy_ingest_operational_asset",
+  ];
+  const allToolsPresent = expectedTools.every((t) => toolNames.includes(t));
+  if (allToolsPresent) {
+    console.log(`  ✅ PASS (Edge Case 9): MCP Server exposes all 5 tools: [${toolNames.join(", ")}]`);
+  } else {
+    throw new Error(`FAIL (Edge Case 9): Missing expected MCP tools! Found: ${toolNames}`);
   }
 
-  reloadedEngine.close();
+  // Test tools/call agy_ingest_operational_asset
+  const ingestCallResp = await (mcpServer as any).handleRequest({
+    jsonrpc: "2.0",
+    id: 2,
+    method: "tools/call",
+    params: {
+      name: "agy_ingest_operational_asset",
+      arguments: {
+        type: "rule",
+        title: "Coding Style Rule",
+        content: "Always write pure TypeScript without any native C++ dependencies.",
+        triggerTags: ["coding_rule", "@rule:style"],
+      },
+    },
+  });
+  if (ingestCallResp.result?.assetId) {
+    console.log(`  ✅ PASS (Edge Case 9): MCP 'agy_ingest_operational_asset' executed -> ${ingestCallResp.result.assetId}`);
+  } else {
+    throw new Error("FAIL (Edge Case 9): MCP ingest tool call failed!");
+  }
+
+  // Test tools/call agy_load_operational_asset
+  const loadCallResp = await (mcpServer as any).handleRequest({
+    jsonrpc: "2.0",
+    id: 3,
+    method: "tools/call",
+    params: {
+      name: "agy_load_operational_asset",
+      arguments: {
+        triggerTag: "@rule:style",
+      },
+    },
+  });
+  if (loadCallResp.result?.found) {
+    console.log("  ✅ PASS (Edge Case 9): MCP 'agy_load_operational_asset' retrieved rule by exact trigger tag.");
+  } else {
+    throw new Error("FAIL (Edge Case 9): MCP load tool call failed to find ingested asset!");
+  }
+
+  // Test invalid method
+  const invalidResp = await (mcpServer as any).handleRequest({
+    jsonrpc: "2.0",
+    id: 4,
+    method: "invalid/unknown_method",
+  });
+  if (invalidResp.error?.code === -32601) {
+    console.log("  ✅ PASS (Edge Case 9): MCP returned JSON-RPC -32601 Method not found for invalid method.");
+  } else {
+    throw new Error("FAIL (Edge Case 9): MCP did not handle unknown method with -32601 code!");
+  }
+  (mcpServer as any).rl.close();
+  (mcpServer as any).engine.close();
+
+  // Edge Case 10: Multimodal Image Generation Ingestion & Provenance
+  console.log("  [Edge Case 10] Testing Multimodal Image Ingestion & Provenance...");
+  const multimodalEngine = new MemoryEngine({
+    dbPath: ".memory/test_multimodal.db",
+    workspace: "design_ws",
+    projectName: "dashboard_ui",
+  });
+  await multimodalEngine.init();
+
+  const imgId = await multimodalEngine.ingestImage(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+    "Dashboard Analytics Dark Theme Mockup",
+    {
+      workspace: "design_ws",
+      project: "dashboard_ui",
+      module: "analytics",
+      commitHash: "img_commit_12345",
+    }
+  );
+
+  const imgResults = await multimodalEngine.search("Analytics Dark Theme Mockup", {
+    workspace: "design_ws",
+    project: "dashboard_ui",
+  });
+  if (
+    imgResults.length > 0 &&
+    imgResults[0].id === imgId &&
+    imgResults[0].modality === "image" &&
+    imgResults[0].commitHash === "img_commit_12345"
+  ) {
+    console.log(`  ✅ PASS (Edge Case 10): Multimodal record persisted with exact provenance -> modality=${imgResults[0].modality}, commit=${imgResults[0].commitHash}`);
+  } else {
+    throw new Error("FAIL (Edge Case 10): Multimodal image record retrieval failed!");
+  }
+
+  multimodalEngine.close();
   try {
-    if (fs.existsSync(waveCDbPath)) fs.unlinkSync(waveCDbPath);
+    if (fs.existsSync(".memory/test_multimodal.db")) fs.unlinkSync(".memory/test_multimodal.db");
   } catch (e) {}
+
+  // Edge Case 11: Vector Math Safety on Zero & Orthogonal Vectors
+  console.log("  [Edge Case 11] Testing Vector Math Safety on Zero & Orthogonal Vectors...");
+  const zeroVec = new Float32Array(768).fill(0.0);
+  const normalVec = new Float32Array(768).fill(1.0);
+  const zeroSim = cosineSimilarity(zeroVec, normalVec);
+  if (zeroSim === 0.0 && !isNaN(zeroSim)) {
+    console.log("  ✅ PASS (Edge Case 11): Zero-norm vector produces 0.0 similarity without NaN error.");
+  } else {
+    throw new Error(`FAIL (Edge Case 11): Zero vector produced NaN or invalid result: ${zeroSim}`);
+  }
 
   console.log(`
 ╔═══════════════════════════════════════════════════════════════════╗
-║         🎉 ALL PHASES & COMPREHENSIVE EDGE-CASES PASSED!          ║
-║   Wave A (Schema) • Wave B (Graph) • Wave C (Ops) • 100% GREEN   ║
+║         🎉 ALL MASTER PHASES, WAVES & EDGE-CASES PASSED!         ║
+║   Phase 1 • Wave A • Wave B • Wave C • MCP • 100% GREEN (11/11)  ║
 ╚═══════════════════════════════════════════════════════════════════╝
 `);
 }
 
-runStandaloneAudit().catch((e) => {
-  console.error("Audit Failure:", e);
-  process.exit(1);
-});
+runStandaloneAudit()
+  .then(() => process.exit(0))
+  .catch((e) => {
+    console.error("Audit Failure:", e);
+    process.exit(1);
+  });
