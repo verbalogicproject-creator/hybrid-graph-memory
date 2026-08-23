@@ -24,6 +24,7 @@ import {
   SearchOptions,
 } from "./types";
 import { ProjectScanner } from "../ast/scanner";
+import { AstDependencyMapper } from "../ast/mapper";
 
 export class MemoryEngine {
   private config: MemoryConfig;
@@ -40,6 +41,7 @@ export class MemoryEngine {
   private ctxChunker = new CtxChunker();
   private textChunker = new TextChunker();
   private scanner: ProjectScanner;
+  private astMapper: AstDependencyMapper;
 
   constructor(customConfig?: Partial<MemoryConfig>) {
     this.config = { ...loadMemoryConfig(), ...(customConfig || {}) };
@@ -54,6 +56,7 @@ export class MemoryEngine {
     );
 
     this.scanner = new ProjectScanner(this.config);
+    this.astMapper = new AstDependencyMapper(this.config.projectRoot);
   }
 
   async init(): Promise<void> {
@@ -253,6 +256,9 @@ export class MemoryEngine {
       let chunks: ChunkRecord[] = [];
       const ext = `.${file.fileType}`.toLowerCase();
 
+      // Clear any prior relations for this source file
+      this.db.deleteRelationsBySource(file.filepath);
+
       if ([".ts", ".tsx", ".js", ".jsx", ".py", ".rs", ".go"].includes(ext)) {
         chunks = this.codeChunker.chunk(
           file.filepath,
@@ -261,6 +267,21 @@ export class MemoryEngine {
           this.embeddingProvider.modelName,
           this.embeddingProvider.dimensions
         );
+
+        if ([".ts", ".tsx", ".js", ".jsx"].includes(ext)) {
+          try {
+            const relations = this.astMapper.extractRelationsFromSource(
+              file.filepath,
+              file.content,
+              this.config.workspace || "default",
+              this.config.projectName || "default",
+              file.module || "root"
+            );
+            for (const rel of relations) {
+              this.db.insertRelation(rel);
+            }
+          } catch (e) {}
+        }
       } else if ([".md", ".mdx"].includes(ext)) {
         chunks = this.mdChunker.chunk(
           file.filepath,
@@ -279,6 +300,9 @@ export class MemoryEngine {
         );
         chunks = parsed.chunks;
         for (const rel of parsed.relations) {
+          rel.workspace = this.config.workspace || "default";
+          rel.project = this.config.projectName || "default";
+          rel.module = file.module || "root";
           this.db.insertRelation(rel);
         }
       } else {

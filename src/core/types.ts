@@ -102,6 +102,9 @@ export interface MemoryRelation {
   weight: number;
   confidence?: number;
   metadata?: Record<string, unknown>;
+  workspace?: string;
+  project?: string;
+  module?: string;
   createdAt: number;
 }
 

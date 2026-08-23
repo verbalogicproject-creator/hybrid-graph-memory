@@ -62,18 +62,23 @@ export class LocalLlamaEmbeddingProvider implements EmbeddingProvider {
 
   private async callLocalEmbedding(text: string): Promise<Float32Array> {
     try {
+      // Guard against empty string (causes HTTP 500 on llama.cpp tokenization)
+      const cleanText = text && text.trim().length > 0 ? text.trim() : "empty";
+      // Truncate overly long text payloads to fit safely within llama.cpp 512 token physical batch size (~1200 chars)
+      const safeText = cleanText.length > 1200 ? cleanText.slice(0, 1200) : cleanText;
       const res = await fetch(this.embedderUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          input: text,
+          input: safeText,
           model: this.modelName,
         }),
       });
 
       if (!res.ok) {
+        const errorBody = await res.text().catch(() => "");
         throw new Error(
-          `Local embedder returned HTTP ${res.status}: ${res.statusText}`
+          `Local embedder returned HTTP ${res.status}: ${res.statusText} - Body: "${errorBody}" - Input sample: "${safeText.slice(0, 80)}"`
         );
       }
 

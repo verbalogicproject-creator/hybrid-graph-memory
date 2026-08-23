@@ -200,6 +200,19 @@ export class MemoryDatabase {
       CREATE INDEX IF NOT EXISTS idx_rel_type ON relations(relation);
     `);
 
+    try {
+      this.db.exec("ALTER TABLE relations ADD COLUMN workspace TEXT DEFAULT 'default';");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE relations ADD COLUMN project TEXT DEFAULT 'default';");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE relations ADD COLUMN module TEXT DEFAULT 'root';");
+    } catch (e) {}
+    try {
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_rel_ns ON relations(workspace, project);");
+    } catch (e) {}
+
     // 6. FTS5 Virtual Tables & Triggers
     try {
       this.db.exec(`
@@ -564,8 +577,9 @@ export class MemoryDatabase {
   insertRelation(relation: MemoryRelation) {
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO relations (
-        id, from_id, relation, to_id, source, weight, confidence, metadata, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, from_id, relation, to_id, source, weight, confidence, metadata,
+        workspace, project, module, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -577,35 +591,75 @@ export class MemoryDatabase {
       relation.weight,
       relation.confidence || 1.0,
       relation.metadata ? JSON.stringify(relation.metadata) : null,
+      relation.workspace || "default",
+      relation.project || "default",
+      relation.module || "root",
       relation.createdAt
     );
   }
 
-  getAllRelations(): MemoryRelation[] {
-    const stmt = this.db.prepare(`
+  getAllRelations(options?: { workspace?: string; project?: string }): MemoryRelation[] {
+    let query = `
       SELECT id, from_id as fromId, relation, to_id as toId,
-             source, weight, confidence, metadata, created_at as createdAt
+             source, weight, confidence, metadata,
+             workspace, project, module, created_at as createdAt
       FROM relations
-    `);
-    const rows = stmt.all() as any[];
+    `;
+    const params: any[] = [];
+    const conditions: string[] = [];
+    if (options?.workspace) {
+      conditions.push("workspace = ?");
+      params.push(options.workspace);
+    }
+    if (options?.project) {
+      conditions.push("project = ?");
+      params.push(options.project);
+    }
+    if (conditions.length > 0) {
+      query += ` WHERE ${conditions.join(" AND ")}`;
+    }
+    const stmt = this.db.prepare(query);
+    const rows = (params.length > 0 ? stmt.all(...params) : stmt.all()) as any[];
     return rows.map((r) => ({
       ...r,
+      workspace: r.workspace || "default",
+      project: r.project || "default",
+      module: r.module || "root",
       metadata: r.metadata ? JSON.parse(r.metadata) : undefined,
     }));
   }
 
-  getRelationsForNode(nodeId: string): MemoryRelation[] {
-    const stmt = this.db.prepare(`
+  getRelationsForNode(nodeId: string, options?: { workspace?: string; project?: string }): MemoryRelation[] {
+    let query = `
       SELECT id, from_id as fromId, relation, to_id as toId,
-             source, weight, confidence, metadata, created_at as createdAt
-      FROM relations WHERE from_id = ? OR to_id = ?
-    `);
-
-    const rows = stmt.all(nodeId, nodeId) as any[];
+             source, weight, confidence, metadata,
+             workspace, project, module, created_at as createdAt
+      FROM relations WHERE (from_id = ? OR to_id = ?)
+    `;
+    const params: any[] = [nodeId, nodeId];
+    if (options?.workspace) {
+      query += " AND workspace = ?";
+      params.push(options.workspace);
+    }
+    if (options?.project) {
+      query += " AND project = ?";
+      params.push(options.project);
+    }
+    const stmt = this.db.prepare(query);
+    const rows = stmt.all(...params) as any[];
     return rows.map((r) => ({
       ...r,
+      workspace: r.workspace || "default",
+      project: r.project || "default",
+      module: r.module || "root",
       metadata: r.metadata ? JSON.parse(r.metadata) : undefined,
     }));
+  }
+
+  deleteRelationsBySource(sourceFilepath: string): void {
+    try {
+      this.db.prepare("DELETE FROM relations WHERE source = ?").run(sourceFilepath);
+    } catch (e) {}
   }
 
   getStats(): IndexStats {

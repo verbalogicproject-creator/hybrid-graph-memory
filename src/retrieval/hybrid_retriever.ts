@@ -272,7 +272,10 @@ export class HybridRetriever {
       accessCount?: number;
     }> = [];
 
-    const allRelations = this.db.getAllRelations();
+    const allRelations = this.db.getAllRelations({
+      workspace: targetWorkspace,
+      project: targetProject,
+    });
     const queryTokens = query.toLowerCase().split(/\s+/);
 
     for (const rel of allRelations) {
@@ -328,12 +331,19 @@ export class HybridRetriever {
       const chunk = chunkMap.get(ranked.id);
       if (chunk) {
         let relatedNodes: RetrievedContext["relatedNodes"];
-        if (chunk.symbolName) {
-          const rels = this.db.getRelationsForNode(chunk.symbolName);
+        const symbolOrFile =
+          chunk.symbolName ||
+          (chunk.filepath ? chunk.filepath.split("/").pop()?.replace(/\.[^/.]+$/, "") : undefined);
+
+        if (symbolOrFile) {
+          const rels = this.db.getRelationsForNode(symbolOrFile, {
+            workspace: targetWorkspace,
+            project: targetProject,
+          });
           if (rels.length > 0) {
             relatedNodes = rels.map((r) => ({
               relation: r.relation,
-              targetId: r.fromId === chunk.symbolName ? r.toId : r.fromId,
+              targetId: r.fromId === symbolOrFile ? r.toId : r.fromId,
               weight: r.weight,
             }));
           }
