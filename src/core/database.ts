@@ -42,6 +42,16 @@ export class MemoryDatabase {
       );
     `);
 
+    try {
+      this.db.exec("ALTER TABLE files ADD COLUMN commit_hash TEXT;");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE files ADD COLUMN workspace TEXT DEFAULT 'default';");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE files ADD COLUMN project TEXT DEFAULT 'default';");
+    } catch (e) {}
+
     // 2. Chunks table
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS chunks (
@@ -79,7 +89,31 @@ export class MemoryDatabase {
       this.db.exec("ALTER TABLE chunks ADD COLUMN provider_type TEXT;");
     } catch (e) {}
     try {
+      this.db.exec("ALTER TABLE chunks ADD COLUMN commit_hash TEXT;");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE chunks ADD COLUMN workspace TEXT DEFAULT 'default';");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE chunks ADD COLUMN project TEXT DEFAULT 'default';");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE chunks ADD COLUMN module TEXT DEFAULT 'root';");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE chunks ADD COLUMN last_accessed_at INTEGER DEFAULT 0;");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE chunks ADD COLUMN access_count INTEGER DEFAULT 0;");
+    } catch (e) {}
+    try {
       this.db.exec("CREATE INDEX IF NOT EXISTS idx_chunks_modal ON chunks(modal_type);");
+    } catch (e) {}
+    try {
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_chunks_ns ON chunks(workspace, project, module);");
+    } catch (e) {}
+    try {
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_chunks_access ON chunks(last_accessed_at);");
     } catch (e) {}
 
     // 3. Memories table (Experiential & Multimodal)
@@ -113,7 +147,31 @@ export class MemoryDatabase {
       this.db.exec("ALTER TABLE memories ADD COLUMN provider_type TEXT;");
     } catch (e) {}
     try {
+      this.db.exec("ALTER TABLE memories ADD COLUMN commit_hash TEXT;");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE memories ADD COLUMN workspace TEXT DEFAULT 'default';");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE memories ADD COLUMN project TEXT DEFAULT 'default';");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE memories ADD COLUMN module TEXT DEFAULT 'root';");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE memories ADD COLUMN last_accessed_at INTEGER DEFAULT 0;");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE memories ADD COLUMN access_count INTEGER DEFAULT 0;");
+    } catch (e) {}
+    try {
       this.db.exec("CREATE INDEX IF NOT EXISTS idx_memories_modal ON memories(modal_type);");
+    } catch (e) {}
+    try {
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_memories_ns ON memories(workspace, project, module);");
+    } catch (e) {}
+    try {
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_memories_access ON memories(last_accessed_at);");
     } catch (e) {}
 
     // 4. Metadata / Manifest table
@@ -169,10 +227,16 @@ export class MemoryDatabase {
 
   upsertFile(file: FileRecord) {
     const stmt = this.db.prepare(`
-      INSERT INTO files (id, filepath, file_type, content_hash, mtime, size, indexed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO files (
+        id, filepath, file_type, content_hash, commit_hash, workspace, project,
+        mtime, size, indexed_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(filepath) DO UPDATE SET
         content_hash = excluded.content_hash,
+        commit_hash = excluded.commit_hash,
+        workspace = excluded.workspace,
+        project = excluded.project,
         mtime = excluded.mtime,
         size = excluded.size,
         indexed_at = excluded.indexed_at
@@ -182,6 +246,9 @@ export class MemoryDatabase {
       file.filepath,
       file.fileType,
       file.contentHash,
+      file.commitHash || null,
+      file.workspace || "default",
+      file.project || "default",
       file.mtime,
       file.size,
       file.indexedAt
@@ -191,6 +258,7 @@ export class MemoryDatabase {
   getFileByPath(filepath: string): FileRecord | null {
     const stmt = this.db.prepare(`
       SELECT id, filepath, file_type as fileType, content_hash as contentHash,
+             commit_hash as commitHash, workspace, project,
              mtime, size, indexed_at as indexedAt
       FROM files WHERE filepath = ?
     `);
@@ -201,6 +269,7 @@ export class MemoryDatabase {
   getAllFiles(): FileRecord[] {
     const stmt = this.db.prepare(`
       SELECT id, filepath, file_type as fileType, content_hash as contentHash,
+             commit_hash as commitHash, workspace, project,
              mtime, size, indexed_at as indexedAt
       FROM files
     `);
@@ -239,8 +308,10 @@ export class MemoryDatabase {
         id, file_id, chunk_index, content, content_hash, source_type,
         modal_type, b64_source,
         symbol_name, symbol_kind, heading, start_line, end_line,
-        embedding, embedding_model, embedding_dimension, provider_type, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        embedding, embedding_model, embedding_dimension, provider_type,
+        commit_hash, workspace, project, module, last_accessed_at, access_count,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -261,6 +332,12 @@ export class MemoryDatabase {
       chunk.embeddingModel,
       chunk.embeddingDimension,
       providerType,
+      chunk.commitHash || null,
+      chunk.workspace || "default",
+      chunk.project || "default",
+      chunk.module || "root",
+      chunk.lastAccessedAt || 0,
+      chunk.accessCount || 0,
       chunk.createdAt,
       chunk.updatedAt
     );
@@ -286,6 +363,8 @@ export class MemoryDatabase {
              embedding, embedding_model as embeddingModel,
              embedding_dimension as embeddingDimension,
              provider_type as providerType,
+             commit_hash as commitHash, workspace, project, module,
+             last_accessed_at as lastAccessedAt, access_count as accessCount,
              created_at as createdAt, updated_at as updatedAt
       FROM chunks WHERE file_id = ? ORDER BY chunk_index ASC
     `);
@@ -296,6 +375,11 @@ export class MemoryDatabase {
       providerType:
         r.providerType ||
         (r.embeddingModel?.includes("gemini") ? "cloud" : "local_llama"),
+      workspace: r.workspace || "default",
+      project: r.project || "default",
+      module: r.module || "root",
+      lastAccessedAt: r.lastAccessedAt || 0,
+      accessCount: r.accessCount || 0,
       embedding: r.embedding ? bufferToFloat32(r.embedding) : undefined,
     }));
   }
@@ -312,6 +396,8 @@ export class MemoryDatabase {
              c.embedding, c.embedding_model as embeddingModel,
              c.embedding_dimension as embeddingDimension,
              c.provider_type as providerType,
+             c.commit_hash as commitHash, c.workspace, c.project, c.module,
+             c.last_accessed_at as lastAccessedAt, c.access_count as accessCount,
              c.created_at as createdAt, c.updated_at as updatedAt,
              f.filepath, f.file_type as fileType
       FROM chunks c
@@ -325,6 +411,11 @@ export class MemoryDatabase {
       providerType:
         r.providerType ||
         (r.embeddingModel?.includes("gemini") ? "cloud" : "local_llama"),
+      workspace: r.workspace || "default",
+      project: r.project || "default",
+      module: r.module || "root",
+      lastAccessedAt: r.lastAccessedAt || 0,
+      accessCount: r.accessCount || 0,
       embedding: r.embedding ? bufferToFloat32(r.embedding) : undefined,
     }));
   }
@@ -337,8 +428,10 @@ export class MemoryDatabase {
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO memories (
         id, memory_type, modality, modal_type, b64_source, title, content, metadata,
-        embedding, embedding_model, embedding_dimension, provider_type, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        embedding, embedding_model, embedding_dimension, provider_type,
+        commit_hash, workspace, project, module, last_accessed_at, access_count,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -354,6 +447,12 @@ export class MemoryDatabase {
       memory.embeddingModel,
       memory.embeddingDimension,
       providerType,
+      memory.commitHash || null,
+      memory.workspace || "default",
+      memory.project || "default",
+      memory.module || "root",
+      memory.lastAccessedAt || 0,
+      memory.accessCount || 0,
       memory.createdAt,
       memory.updatedAt
     );
@@ -376,6 +475,8 @@ export class MemoryDatabase {
              metadata, embedding, embedding_model as embeddingModel,
              embedding_dimension as embeddingDimension,
              provider_type as providerType,
+             commit_hash as commitHash, workspace, project, module,
+             last_accessed_at as lastAccessedAt, access_count as accessCount,
              created_at as createdAt, updated_at as updatedAt
       FROM memories WHERE embedding IS NOT NULL
     `);
@@ -386,9 +487,36 @@ export class MemoryDatabase {
       providerType:
         r.providerType ||
         (r.embeddingModel?.includes("gemini") ? "cloud" : "local_llama"),
+      workspace: r.workspace || "default",
+      project: r.project || "default",
+      module: r.module || "root",
+      lastAccessedAt: r.lastAccessedAt || 0,
+      accessCount: r.accessCount || 0,
       metadata: r.metadata ? JSON.parse(r.metadata) : undefined,
       embedding: r.embedding ? bufferToFloat32(r.embedding) : undefined,
     }));
+  }
+
+  recordAccess(chunkIds: string[], memoryIds: string[] = []): void {
+    const now = Date.now();
+    for (const id of chunkIds) {
+      try {
+        this.db
+          .prepare(
+            "UPDATE chunks SET last_accessed_at = ?, access_count = access_count + 1 WHERE id = ?"
+          )
+          .run(now, id);
+      } catch (e) {}
+    }
+    for (const id of memoryIds) {
+      try {
+        this.db
+          .prepare(
+            "UPDATE memories SET last_accessed_at = ?, access_count = access_count + 1 WHERE id = ?"
+          )
+          .run(now, id);
+      } catch (e) {}
+    }
   }
 
   setMeta(key: string, value: string): void {

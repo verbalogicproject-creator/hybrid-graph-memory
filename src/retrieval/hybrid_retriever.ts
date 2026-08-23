@@ -37,6 +37,32 @@ export class HybridRetriever {
     const candidateLimit = options.candidateLimit ?? this.config.candidateLimit;
     const intent = options.intent || inferQueryIntent(query);
 
+    // Strict hierarchical namespace resolution: Workspace -> Project -> Module
+    const targetWorkspace =
+      options.workspace ??
+      (options.strictNamespace !== false ? this.config.workspace : undefined);
+    const targetProject =
+      options.project ??
+      (options.strictNamespace !== false ? this.config.projectName : undefined);
+    const targetModule = options.module;
+
+    const matchesNamespace = (item: {
+      workspace?: string;
+      project?: string;
+      module?: string;
+    }) => {
+      if (targetWorkspace && item.workspace && item.workspace !== targetWorkspace) {
+        return false;
+      }
+      if (targetProject && item.project && item.project !== targetProject) {
+        return false;
+      }
+      if (targetModule && item.module && item.module !== targetModule) {
+        return false;
+      }
+      return true;
+    };
+
     // 1. Generate query embedding
     const queryVector = await this.embeddingProvider.embedQuery({
       query,
@@ -47,12 +73,14 @@ export class HybridRetriever {
     const chunks = this.db.getAllChunksWithEmbeddings();
     const memories = this.db.getAllMemoriesWithEmbeddings();
 
-    // 3. Semantic scoring with strict composite identity filtering
+    // 3. Semantic scoring with strict composite identity & namespace filtering
     const semanticChunkMatches: Array<{
       id: string;
       score: number;
       sourceType: string;
       timestamp?: number;
+      lastAccessedAt?: number;
+      accessCount?: number;
       chunk: ChunkRecord & { filepath: string; fileType: string };
     }> = [];
 
@@ -66,6 +94,8 @@ export class HybridRetriever {
 
     for (const chunk of chunks) {
       if (!chunk.embedding) continue;
+      if (!matchesNamespace(chunk)) continue;
+
       totalVectorsEvaluated++;
 
       const chunkProviderType =
@@ -90,6 +120,8 @@ export class HybridRetriever {
           score,
           sourceType: chunk.sourceType,
           timestamp: chunk.updatedAt || chunk.createdAt,
+          lastAccessedAt: chunk.lastAccessedAt,
+          accessCount: chunk.accessCount,
           chunk,
         });
       }
@@ -100,11 +132,15 @@ export class HybridRetriever {
       score: number;
       sourceType: string;
       timestamp?: number;
+      lastAccessedAt?: number;
+      accessCount?: number;
       memory: MemoryRecord;
     }> = [];
 
     for (const memory of memories) {
       if (!memory.embedding) continue;
+      if (!matchesNamespace(memory)) continue;
+
       totalVectorsEvaluated++;
 
       const memoryProviderType =
@@ -129,6 +165,8 @@ export class HybridRetriever {
           score,
           sourceType: memory.memoryType,
           timestamp: memory.updatedAt || memory.createdAt,
+          lastAccessedAt: memory.lastAccessedAt,
+          accessCount: memory.accessCount,
           memory,
         });
       }
@@ -171,15 +209,18 @@ export class HybridRetriever {
       ...semanticMemoryMatches,
     ].sort((a, b) => b.score - a.score);
 
-    // 4. Lexical scoring
+    // 4. Lexical scoring (scoped to namespace)
     const lexicalMatches: Array<{
       id: string;
       score: number;
       sourceType: string;
       timestamp?: number;
+      lastAccessedAt?: number;
+      accessCount?: number;
     }> = [];
 
     for (const chunk of chunks) {
+      if (!matchesNamespace(chunk)) continue;
       const match = this.lexicalScorer.scoreText(
         query,
         chunk.id,
@@ -193,11 +234,14 @@ export class HybridRetriever {
           score: match.score,
           sourceType: chunk.sourceType,
           timestamp: chunk.updatedAt || chunk.createdAt,
+          lastAccessedAt: chunk.lastAccessedAt,
+          accessCount: chunk.accessCount,
         });
       }
     }
 
     for (const memory of memories) {
+      if (!matchesNamespace(memory)) continue;
       const match = this.lexicalScorer.scoreText(
         query,
         memory.id,
@@ -210,18 +254,22 @@ export class HybridRetriever {
           score: match.score,
           sourceType: memory.memoryType,
           timestamp: memory.updatedAt || memory.createdAt,
+          lastAccessedAt: memory.lastAccessedAt,
+          accessCount: memory.accessCount,
         });
       }
     }
 
     lexicalMatches.sort((a, b) => b.score - a.score);
 
-    // 5. Graph Relations Traversal
+    // 5. Graph Relations Traversal (scoped to namespace)
     const graphMatches: Array<{
       id: string;
       score: number;
       sourceType: string;
       timestamp?: number;
+      lastAccessedAt?: number;
+      accessCount?: number;
     }> = [];
 
     const allRelations = this.db.getAllRelations();
@@ -237,6 +285,7 @@ export class HybridRetriever {
 
       if (mentionsFrom || mentionsTo) {
         for (const chunk of chunks) {
+          if (!matchesNamespace(chunk)) continue;
           if (
             chunk.symbolName === rel.fromId ||
             chunk.symbolName === rel.toId ||
@@ -248,13 +297,15 @@ export class HybridRetriever {
               score: rel.weight * (rel.confidence || 1.0),
               sourceType: "architecture",
               timestamp: chunk.updatedAt || chunk.createdAt,
+              lastAccessedAt: chunk.lastAccessedAt,
+              accessCount: chunk.accessCount,
             });
           }
         }
       }
     }
 
-    // 6. Reciprocal Rank Fusion with Elo 14-day time decay
+    // 6. Reciprocal Rank Fusion with Elo 14-day time decay & access recency
     const fusedRankings = reciprocalRankFusion(
       allSemanticMatches.slice(0, candidateLimit),
       lexicalMatches.slice(0, candidateLimit),
@@ -264,7 +315,7 @@ export class HybridRetriever {
       this.config.halfLifeDays
     );
 
-    // 7. Map back to RetrievedContext
+    // 7. Map back to RetrievedContext with granular provenance
     const chunkMap = new Map<string, (typeof chunks)[0]>();
     chunks.forEach((c) => chunkMap.set(c.id, c));
 
@@ -300,6 +351,12 @@ export class HybridRetriever {
           heading: chunk.heading,
           startLine: chunk.startLine,
           endLine: chunk.endLine,
+          commitHash: chunk.commitHash,
+          workspace: chunk.workspace,
+          project: chunk.project,
+          module: chunk.module,
+          lastAccessedAt: chunk.lastAccessedAt,
+          accessCount: chunk.accessCount,
           semanticScore: ranked.semanticScore,
           lexicalScore: ranked.lexicalScore,
           graphScore: ranked.graphScore,
@@ -318,6 +375,12 @@ export class HybridRetriever {
             content: memory.content,
             symbol: memory.title,
             symbolKind: memory.memoryType,
+            commitHash: memory.commitHash,
+            workspace: memory.workspace,
+            project: memory.project,
+            module: memory.module,
+            lastAccessedAt: memory.lastAccessedAt,
+            accessCount: memory.accessCount,
             semanticScore: ranked.semanticScore,
             lexicalScore: ranked.lexicalScore,
             finalScore: ranked.finalScore,
@@ -348,7 +411,23 @@ export class HybridRetriever {
       } catch (e) {}
     }
 
-    // 9. Limit final results
-    return candidatePool.slice(0, limit);
+    // 9. Limit final results & Record access tracking
+    const finalResults = candidatePool.slice(0, limit);
+    const chunkIdsToRecord: string[] = [];
+    const memoryIdsToRecord: string[] = [];
+
+    for (const r of finalResults) {
+      if (chunkMap.has(r.id)) {
+        chunkIdsToRecord.push(r.id);
+      } else if (memoryMap.has(r.id)) {
+        memoryIdsToRecord.push(r.id);
+      }
+    }
+
+    if (chunkIdsToRecord.length > 0 || memoryIdsToRecord.length > 0) {
+      this.db.recordAccess(chunkIdsToRecord, memoryIdsToRecord);
+    }
+
+    return finalResults;
   }
 }

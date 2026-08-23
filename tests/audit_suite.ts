@@ -240,10 +240,121 @@ async function runStandaloneAudit() {
     if (fs.existsSync(".memory/test_fallback.db")) fs.unlinkSync(".memory/test_fallback.db");
   } catch (e) {}
 
+  // =========================================================================
+  // PHASE 2 WAVE A VERIFICATION SUITE
+  // =========================================================================
   console.log(`
 ╔═══════════════════════════════════════════════════════════════════╗
-║         🎉 ALL PHASE 1 FIXES & AUDIT VERIFICATIONS PASSED!       ║
-║   Fallback Probed • Fast Clean Fail • Zero Cross-Space Mixing     ║
+║         🌊 PHASE 2 WAVE A: SCHEMA FOUNDATIONS VERIFICATION        ║
+╚═══════════════════════════════════════════════════════════════════╝
+`);
+
+  const waveADbPath = ".memory/test_wave_a_schema.db";
+  if (fs.existsSync(waveADbPath)) fs.unlinkSync(waveADbPath);
+
+  // 1. Granular Provenance & Hierarchical Namespaces Test
+  console.log("  [Wave A Item 1 & 2] Testing Provenance & Strict Hierarchical Namespaces (Workspace → Project → Module)...");
+  const waveAEngine = new MemoryEngine({
+    dbPath: waveADbPath,
+    workspace: "corp_workspace",
+    projectName: "project_alpha",
+  });
+  await waveAEngine.init();
+
+  const docAlphaAuthId = await waveAEngine.ingestText(
+    "OAuth2 and OIDC authentication flow with PKCE authorization code grants.",
+    "Alpha Frontend Auth",
+    "documentation",
+    {
+      workspace: "corp_workspace",
+      project: "project_alpha",
+      module: "auth_ui",
+      commitHash: "a1b2c3d4e5f67890",
+    }
+  );
+
+  const docAlphaBillingId = await waveAEngine.ingestText(
+    "Stripe subscription webhook and invoicing payment processing logic.",
+    "Alpha Billing Engine",
+    "documentation",
+    {
+      workspace: "corp_workspace",
+      project: "project_alpha",
+      module: "billing",
+      commitHash: "a1b2c3d4e5f67890",
+    }
+  );
+
+  const docBetaAuthId = await waveAEngine.ingestText(
+    "JWT RSA-256 session token verification and revocation blacklist.",
+    "Beta Backend Auth",
+    "documentation",
+    {
+      workspace: "corp_workspace",
+      project: "project_beta",
+      module: "auth_backend",
+      commitHash: "f9e8d7c6b5a43210",
+    }
+  );
+
+  const docOtherWorkspaceId = await waveAEngine.ingestText(
+    "OAuth2 login modal dialog view component for external workspace.",
+    "Other Workspace Auth",
+    "documentation",
+    {
+      workspace: "external_workspace",
+      project: "project_alpha",
+      module: "auth_ui",
+      commitHash: "1122334455667788",
+    }
+  );
+
+  // Test 1: Query scoped strictly to project_alpha + auth_ui module
+  const alphaAuthResults = await waveAEngine.search("OAuth2 authentication", {
+    workspace: "corp_workspace",
+    project: "project_alpha",
+    module: "auth_ui",
+  });
+
+  console.log(`  🔎 Retrieved ${alphaAuthResults.length} scoped results for project_alpha/auth_ui`);
+  if (alphaAuthResults.length > 0 && alphaAuthResults[0].id === docAlphaAuthId) {
+    const res = alphaAuthResults[0];
+    console.log(`  ✅ PASS (Wave A Item 1): Provenance Verified -> commitHash=${res.commitHash}, workspace=${res.workspace}, project=${res.project}, module=${res.module}`);
+  } else {
+    throw new Error("FAIL (Wave A Item 1): Failed to retrieve expected scoped record with provenance!");
+  }
+
+  // Test 2: Namespace leakage check (0/30 leakage guarantee)
+  const isBetaLeaked = alphaAuthResults.some((r) => r.project === "project_beta" || r.id === docBetaAuthId);
+  const isOtherWorkspaceLeaked = alphaAuthResults.some((r) => r.workspace === "external_workspace" || r.id === docOtherWorkspaceId);
+
+  if (!isBetaLeaked && !isOtherWorkspaceLeaked) {
+    console.log(`  ✅ PASS (Wave A Item 2): Strict Namespace Isolation Verified (0 leakage between projects/workspaces)`);
+  } else {
+    throw new Error("FAIL (Wave A Item 2): Cross-namespace leakage detected!");
+  }
+
+  // 2. Temporal Tracking Test (lastAccessedAt & accessCount)
+  console.log("  [Wave A Item 3] Testing Temporal Access Tracking & Recency Extension...");
+  const memoriesBefore = (waveAEngine as any).db.getAllMemoriesWithEmbeddings();
+  const targetMemory = memoriesBefore.find((m: any) => m.id === docAlphaAuthId);
+  console.log(`  📊 Memory Record Access Stats -> accessCount = ${targetMemory.accessCount}, lastAccessedAt = ${targetMemory.lastAccessedAt}`);
+
+  if (targetMemory.accessCount >= 1 && targetMemory.lastAccessedAt > 0) {
+    console.log(`  ✅ PASS (Wave A Item 3): Access count & last_accessed_at automatically updated upon retrieval!`);
+  } else {
+    throw new Error("FAIL (Wave A Item 3): Access stats not updated on search!");
+  }
+
+  waveAEngine.close();
+  try {
+    if (fs.existsSync(waveADbPath)) fs.unlinkSync(waveADbPath);
+  } catch (e) {}
+
+  console.log(`
+╔═══════════════════════════════════════════════════════════════════╗
+║         🎉 ALL PHASE 1 & PHASE 2 WAVE A AUDITS PASSED!           ║
+║   Namespaces Isolated • Provenance Intact • Access Tracked        ║
 ╚═══════════════════════════════════════════════════════════════════╝
 `);
 }

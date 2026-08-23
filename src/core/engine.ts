@@ -240,6 +240,9 @@ export class MemoryEngine {
         filepath: file.filepath,
         fileType: file.fileType,
         contentHash: file.contentHash,
+        commitHash: file.commitHash,
+        workspace: this.config.workspace || "default",
+        project: this.config.projectName || "default",
         mtime: file.mtime,
         size: file.size,
         indexedAt: Date.now(),
@@ -291,6 +294,13 @@ export class MemoryEngine {
       for (let cIdx = 0; cIdx < chunks.length; cIdx++) {
         const chunk = chunks[cIdx];
         chunk.providerType = this.embeddingProvider.providerType;
+        chunk.commitHash = file.commitHash;
+        chunk.workspace = this.config.workspace || "default";
+        chunk.project = this.config.projectName || "default";
+        chunk.module = file.module || "root";
+        chunk.lastAccessedAt = 0;
+        chunk.accessCount = 0;
+
         const embedding = await this.embeddingProvider.embedDocument({
           text: chunk.content,
           title: file.filepath,
@@ -402,6 +412,12 @@ export class MemoryEngine {
       embeddingModel: this.embeddingProvider.modelName,
       embeddingDimension: this.embeddingProvider.dimensions,
       providerType: this.embeddingProvider.providerType,
+      commitHash: (metadata?.commitHash as string) || undefined,
+      workspace: (metadata?.workspace as string) || this.config.workspace || "default",
+      project: (metadata?.project as string) || this.config.projectName || "default",
+      module: (metadata?.module as string) || "root",
+      lastAccessedAt: now,
+      accessCount: 0,
       createdAt: now,
       updatedAt: now,
     };
@@ -442,6 +458,12 @@ export class MemoryEngine {
       embeddingModel: this.embeddingProvider.modelName,
       embeddingDimension: this.embeddingProvider.dimensions,
       providerType: this.embeddingProvider.providerType,
+      commitHash: (metadata?.commitHash as string) || undefined,
+      workspace: (metadata?.workspace as string) || this.config.workspace || "default",
+      project: (metadata?.project as string) || this.config.projectName || "default",
+      module: (metadata?.module as string) || "root",
+      lastAccessedAt: now,
+      accessCount: 0,
       createdAt: now,
       updatedAt: now,
     };

@@ -34,6 +34,9 @@ export interface FileRecord {
   filepath: string;
   fileType: string;
   contentHash: string;
+  commitHash?: string;
+  workspace?: string;
+  project?: string;
   mtime: number;
   size: number;
   indexedAt: number;
@@ -57,6 +60,12 @@ export interface ChunkRecord {
   embeddingModel: string;
   embeddingDimension: number;
   providerType?: "cloud" | "local_llama";
+  commitHash?: string;
+  workspace?: string;
+  project?: string;
+  module?: string;
+  lastAccessedAt?: number;
+  accessCount?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -74,6 +83,12 @@ export interface MemoryRecord {
   embeddingModel: string;
   embeddingDimension: number;
   providerType?: "cloud" | "local_llama";
+  commitHash?: string;
+  workspace?: string;
+  project?: string;
+  module?: string;
+  lastAccessedAt?: number;
+  accessCount?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -181,6 +196,12 @@ export interface RetrievedContext {
   heading?: string;
   startLine?: number;
   endLine?: number;
+  commitHash?: string;
+  workspace?: string;
+  project?: string;
+  module?: string;
+  lastAccessedAt?: number;
+  accessCount?: number;
   semanticScore?: number;
   lexicalScore?: number;
   graphScore?: number;
@@ -204,6 +225,10 @@ export interface SearchOptions {
   filterFilepaths?: string[];
   filterMemoryTypes?: MemoryType[];
   filterModalities?: MemoryModality[];
+  workspace?: string;
+  project?: string;
+  module?: string;
+  strictNamespace?: boolean;
 }
 
 export interface IndexStats {

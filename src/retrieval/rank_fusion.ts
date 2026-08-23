@@ -10,6 +10,8 @@ export interface RankedCandidate {
   rerankScore?: number;
   sourceType?: string;
   timestamp?: number;
+  lastAccessedAt?: number;
+  accessCount?: number;
   decayMultiplier?: number;
   finalScore: number;
   reason: string;
@@ -27,20 +29,50 @@ export function calculateTimeDecay(
   timestamp?: number,
   halfLifeDays = 14,
   minDecayFloor = 0.1,
-  referenceTime = Date.now()
+  referenceTime = Date.now(),
+  lastAccessedAt?: number,
+  accessCount?: number
 ): number {
-  if (!timestamp || timestamp <= 0) return 1.0;
+  const effectiveTimestamp = Math.max(timestamp || 0, lastAccessedAt || 0);
+  if (!effectiveTimestamp || effectiveTimestamp <= 0) return 1.0;
 
-  const ageMs = Math.max(0, referenceTime - timestamp);
+  const ageMs = Math.max(0, referenceTime - effectiveTimestamp);
   const ageDays = ageMs / (1000 * 60 * 60 * 24);
-  const decay = Math.pow(2, -ageDays / halfLifeDays);
+  let decay = Math.pow(2, -ageDays / halfLifeDays);
+
+  if (accessCount && accessCount > 0) {
+    const frequencyBoost = 1.0 + Math.min(0.2, Math.log10(accessCount + 1) * 0.1);
+    decay = decay * frequencyBoost;
+  }
+
   return Math.max(minDecayFloor, Math.min(1.0, decay));
 }
 
 export function reciprocalRankFusion(
-  semanticRankings: Array<{ id: string; score: number; sourceType?: string; timestamp?: number }>,
-  lexicalRankings: Array<{ id: string; score: number; sourceType?: string; timestamp?: number }>,
-  graphRankings: Array<{ id: string; score: number; sourceType?: string; timestamp?: number }> = [],
+  semanticRankings: Array<{
+    id: string;
+    score: number;
+    sourceType?: string;
+    timestamp?: number;
+    lastAccessedAt?: number;
+    accessCount?: number;
+  }>,
+  lexicalRankings: Array<{
+    id: string;
+    score: number;
+    sourceType?: string;
+    timestamp?: number;
+    lastAccessedAt?: number;
+    accessCount?: number;
+  }>,
+  graphRankings: Array<{
+    id: string;
+    score: number;
+    sourceType?: string;
+    timestamp?: number;
+    lastAccessedAt?: number;
+    accessCount?: number;
+  }> = [],
   intent: RetrievalIntent = "general",
   k = 60,
   halfLifeDays = 14
@@ -61,6 +93,8 @@ export function reciprocalRankFusion(
       semanticScore: item.score,
       sourceType: item.sourceType,
       timestamp: item.timestamp,
+      lastAccessedAt: item.lastAccessedAt,
+      accessCount: item.accessCount,
       finalScore: rrfScore,
       reason: `Semantic match (Cosine: ${item.score.toFixed(3)}, Rank: #${rank + 1})`,
     });
@@ -81,6 +115,12 @@ export function reciprocalRankFusion(
       if (!existing.timestamp && item.timestamp) {
         existing.timestamp = item.timestamp;
       }
+      if (!existing.lastAccessedAt && item.lastAccessedAt) {
+        existing.lastAccessedAt = item.lastAccessedAt;
+      }
+      if (!existing.accessCount && item.accessCount) {
+        existing.accessCount = item.accessCount;
+      }
       existing.reason += ` + Lexical match (Rank: #${rank + 1})`;
     } else {
       candidateMap.set(item.id, {
@@ -89,6 +129,8 @@ export function reciprocalRankFusion(
         lexicalScore: item.score,
         sourceType: item.sourceType,
         timestamp: item.timestamp,
+        lastAccessedAt: item.lastAccessedAt,
+        accessCount: item.accessCount,
         finalScore: rrfScore,
         reason: `Lexical match (Rank: #${rank + 1})`,
       });
@@ -108,6 +150,12 @@ export function reciprocalRankFusion(
       if (!existing.timestamp && item.timestamp) {
         existing.timestamp = item.timestamp;
       }
+      if (!existing.lastAccessedAt && item.lastAccessedAt) {
+        existing.lastAccessedAt = item.lastAccessedAt;
+      }
+      if (!existing.accessCount && item.accessCount) {
+        existing.accessCount = item.accessCount;
+      }
       existing.reason += ` + Graph Relation connection`;
     } else {
       candidateMap.set(item.id, {
@@ -115,6 +163,8 @@ export function reciprocalRankFusion(
         graphScore: item.score,
         sourceType: item.sourceType,
         timestamp: item.timestamp,
+        lastAccessedAt: item.lastAccessedAt,
+        accessCount: item.accessCount,
         finalScore: rrfScore,
         reason: `Graph architectural relation connection`,
       });
@@ -123,7 +173,14 @@ export function reciprocalRankFusion(
 
   const now = Date.now();
   for (const candidate of candidateMap.values()) {
-    const decay = calculateTimeDecay(candidate.timestamp, halfLifeDays, 0.1, now);
+    const decay = calculateTimeDecay(
+      candidate.timestamp,
+      halfLifeDays,
+      0.1,
+      now,
+      candidate.lastAccessedAt,
+      candidate.accessCount
+    );
     candidate.decayMultiplier = decay;
     candidate.finalScore = candidate.finalScore * decay;
     if (decay < 0.99) {

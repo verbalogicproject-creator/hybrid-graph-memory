@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 export interface MemoryConfig {
+  workspace: string;
   projectName: string;
   projectRoot: string;
   providerMode: "auto" | "cloud" | "local";
@@ -63,8 +64,11 @@ export function loadMemoryConfig(startDir = process.cwd()): MemoryConfig {
   }
 
   const projectName = parsed.projectName || path.basename(projectRoot);
+  const workspace =
+    parsed.workspace || process.env.ANTIGRAVITY_WORKSPACE || "default";
 
   return {
+    workspace,
     projectName,
     projectRoot,
     providerMode: parsed.providerMode || "auto",
