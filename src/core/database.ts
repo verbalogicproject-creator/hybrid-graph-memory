@@ -204,6 +204,17 @@ export class MemoryDatabase {
     this.db.prepare("DELETE FROM files WHERE id = ?").run(fileId);
   }
 
+  deleteChunksByFileId(fileId: string) {
+    if (this.hasFTS5) {
+      const getChunks = this.db.prepare("SELECT id FROM chunks WHERE file_id = ?");
+      const chunkRows = getChunks.all(fileId) as any[];
+      for (const row of chunkRows) {
+        this.db.prepare("DELETE FROM chunks_fts WHERE chunk_id = ?").run(row.id);
+      }
+    }
+    this.db.prepare("DELETE FROM chunks WHERE file_id = ?").run(fileId);
+  }
+
   insertChunk(chunk: ChunkRecord, filepath = "") {
     const blob = chunk.embedding ? float32ToBuffer(chunk.embedding) : null;
     const stmt = this.db.prepare(`

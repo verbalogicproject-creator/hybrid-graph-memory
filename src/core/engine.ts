@@ -23,6 +23,7 @@ import {
   RetrievedContext,
   SearchOptions,
 } from "./types";
+import { ProjectScanner } from "../ast/scanner";
 
 export class MemoryEngine {
   private config: MemoryConfig;
@@ -85,6 +86,148 @@ export class MemoryEngine {
       this.config,
       this.localReranker
     );
+    this.scanner = new ProjectScanner(this.config);
+  }
+
+  private scanner: ProjectScanner;
+
+  async index(
+    onProgress?: (status: {
+      phase: "scanning" | "chunking" | "embedding" | "completed";
+      file?: string;
+      current?: number;
+      total?: number;
+      message?: string;
+    }) => void
+  ): Promise<{
+    indexed: number;
+    unchanged: number;
+    deleted: number;
+    totalChunks: number;
+  }> {
+    onProgress?.({ phase: "scanning", message: "Scanning project directory..." });
+    const scannedFiles = this.scanner.scan();
+    const existingDbFiles = this.db.getAllFiles();
+    const existingFileMap = new Map(existingDbFiles.map((f) => [f.filepath, f]));
+
+    let indexedCount = 0;
+    let unchangedCount = 0;
+    let deletedCount = 0;
+
+    const scannedPathSet = new Set(scannedFiles.map((f) => f.filepath));
+    for (const dbFile of existingDbFiles) {
+      if (!scannedPathSet.has(dbFile.filepath)) {
+        this.db.deleteFile(dbFile.id);
+        deletedCount++;
+      }
+    }
+
+    const filesToProcess: typeof scannedFiles = [];
+    for (const file of scannedFiles) {
+      const existing = existingFileMap.get(file.filepath);
+      if (
+        existing &&
+        existing.contentHash === file.contentHash &&
+        existing.mtime === file.mtime
+      ) {
+        unchangedCount++;
+      } else {
+        filesToProcess.push(file);
+      }
+    }
+
+    const totalToProcess = filesToProcess.length;
+
+    for (let idx = 0; idx < totalToProcess; idx++) {
+      const file = filesToProcess[idx];
+      const fileId = `file_${computeSha256(file.filepath).slice(0, 24)}`;
+
+      onProgress?.({
+        phase: "chunking",
+        file: file.filepath,
+        current: idx + 1,
+        total: totalToProcess,
+        message: `Processing [${idx + 1}/${totalToProcess}]: ${file.filepath}`,
+      });
+
+      this.db.upsertFile({
+        id: fileId,
+        filepath: file.filepath,
+        fileType: file.fileType,
+        contentHash: file.contentHash,
+        mtime: file.mtime,
+        size: file.size,
+        indexedAt: Date.now(),
+      });
+
+      this.db.deleteChunksByFileId(fileId);
+
+      let chunks: ChunkRecord[] = [];
+      const ext = `.${file.fileType}`.toLowerCase();
+
+      if ([".ts", ".tsx", ".js", ".jsx", ".py", ".rs", ".go"].includes(ext)) {
+        chunks = this.codeChunker.chunk(
+          file.filepath,
+          file.content,
+          fileId,
+          this.embeddingProvider.modelName,
+          this.embeddingProvider.dimensions
+        );
+      } else if ([".md", ".mdx"].includes(ext)) {
+        chunks = this.mdChunker.chunk(
+          file.filepath,
+          file.content,
+          fileId,
+          this.embeddingProvider.modelName,
+          this.embeddingProvider.dimensions
+        );
+      } else if (ext === ".ctx") {
+        const parsed = this.ctxChunker.parse(
+          file.filepath,
+          file.content,
+          fileId,
+          this.embeddingProvider.modelName,
+          this.embeddingProvider.dimensions
+        );
+        chunks = parsed.chunks;
+        for (const rel of parsed.relations) {
+          this.db.insertRelation(rel);
+        }
+      } else {
+        chunks = this.textChunker.chunk(
+          file.filepath,
+          file.content,
+          fileId,
+          this.embeddingProvider.modelName,
+          this.embeddingProvider.dimensions
+        );
+      }
+
+      for (let cIdx = 0; cIdx < chunks.length; cIdx++) {
+        const chunk = chunks[cIdx];
+        const embedding = await this.embeddingProvider.embedDocument({
+          text: chunk.content,
+          title: file.filepath,
+          symbol: chunk.symbolName,
+          modalType: chunk.modalType,
+        });
+
+        chunk.embedding = embedding;
+        this.db.insertChunk(chunk, file.filepath);
+      }
+
+      indexedCount++;
+    }
+
+    onProgress?.({ phase: "completed", message: "Indexing completed." });
+
+    const stats = this.db.getStats();
+    return {
+      indexed: indexedCount,
+      unchanged: unchangedCount,
+      deleted: deletedCount,
+      totalChunks: stats.chunksCount,
+    };
   }
 
   async search(

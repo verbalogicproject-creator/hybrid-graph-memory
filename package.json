@@ -8,6 +8,11 @@
     "agy-memory": "./bin/agy-memory.ts"
   },
   "scripts": {
+    "memory": "tsx bin/agy-memory.ts",
+    "index": "tsx bin/agy-memory.ts index",
+    "search": "tsx bin/agy-memory.ts search",
+    "rag": "tsx bin/agy-memory.ts rag",
+    "stats": "tsx bin/agy-memory.ts stats",
     "build": "tsc",
     "start": "tsx bin/agy-memory.ts",
     "test": "tsx tests/audit_suite.ts",
