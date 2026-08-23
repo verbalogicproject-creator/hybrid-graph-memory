@@ -163,6 +163,7 @@ async function main() {
   const command = args[0];
 
   const engine = new MemoryEngine();
+  await engine.init();
 
   try {
     if (!command) {

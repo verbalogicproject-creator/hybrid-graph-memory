@@ -28,49 +28,22 @@ import { ProjectScanner } from "../ast/scanner";
 export class MemoryEngine {
   private config: MemoryConfig;
   private db: MemoryDatabase;
-  private embeddingProvider: EmbeddingProvider;
-  private retriever: HybridRetriever;
+  private embeddingProvider!: EmbeddingProvider;
+  private retriever!: HybridRetriever;
   private localReranker?: LocalBgeReranker;
   private localGenerator?: LocalLlamaGenerator;
+  private initialized = false;
+  private initPromise?: Promise<void>;
 
   private codeChunker = new CodeChunker();
   private mdChunker = new MarkdownChunker();
   private ctxChunker = new CtxChunker();
   private textChunker = new TextChunker();
+  private scanner: ProjectScanner;
 
   constructor(customConfig?: Partial<MemoryConfig>) {
     this.config = { ...loadMemoryConfig(), ...(customConfig || {}) };
     this.db = new MemoryDatabase(this.config.dbPath);
-
-    // Auto-detect embedding provider
-    if (this.config.providerMode === "local") {
-      this.embeddingProvider = new LocalLlamaEmbeddingProvider(
-        this.config.local.embedderUrl,
-        "embeddinggemma-300m-q4",
-        this.config.local.dimensions
-      );
-    } else if (this.config.providerMode === "cloud") {
-      this.embeddingProvider = new GeminiEmbeddingProvider(
-        this.config.cloud.apiKey,
-        this.config.cloud.embeddingModel,
-        this.config.cloud.dimensions
-      );
-    } else {
-      // Auto mode: Check if local llama embedder is responding, else fallback to Gemini
-      try {
-        this.embeddingProvider = new LocalLlamaEmbeddingProvider(
-          this.config.local.embedderUrl,
-          "embeddinggemma-300m-q4",
-          this.config.local.dimensions
-        );
-      } catch (e) {
-        this.embeddingProvider = new GeminiEmbeddingProvider(
-          this.config.cloud.apiKey,
-          this.config.cloud.embeddingModel,
-          this.config.cloud.dimensions
-        );
-      }
-    }
 
     // Local Reranker & Generator
     this.localReranker = new LocalBgeReranker(this.config.local.rerankerUrl);
@@ -80,16 +53,127 @@ export class MemoryEngine {
       this.config.local.activeGenerator
     );
 
-    this.retriever = new HybridRetriever(
-      this.db,
-      this.embeddingProvider,
-      this.config,
-      this.localReranker
-    );
     this.scanner = new ProjectScanner(this.config);
   }
 
-  private scanner: ProjectScanner;
+  async init(): Promise<void> {
+    if (this.initialized) return;
+    if (this.initPromise) return this.initPromise;
+
+    this.initPromise = (async () => {
+      const mode = this.config.providerMode;
+      let selectedProvider: EmbeddingProvider;
+      let logReason = "";
+
+      if (mode === "local") {
+        const local = new LocalLlamaEmbeddingProvider(
+          this.config.local.embedderUrl,
+          "embeddinggemma-300m-q4",
+          this.config.local.dimensions
+        );
+        const ok = await local.checkHealth();
+        if (!ok) {
+          console.warn(
+            `[memory] ⚠️ Local embedder is not responding at ${this.config.local.embedderUrl}: ${local.lastHealthError || "unavailable"}`
+          );
+        }
+        selectedProvider = local;
+        logReason = "configured providerMode='local'";
+      } else if (mode === "cloud") {
+        const apiKey = this.config.cloud.apiKey || process.env.GEMINI_API_KEY;
+        if (!apiKey) {
+          throw new Error(
+            "Cloud embedding provider configured (providerMode='cloud') but GEMINI_API_KEY is not set in environment or configuration."
+          );
+        }
+        selectedProvider = new GeminiEmbeddingProvider(
+          apiKey,
+          this.config.cloud.embeddingModel,
+          this.config.cloud.dimensions
+        );
+        logReason = "configured providerMode='cloud'";
+      } else {
+        // mode === "auto"
+        const local = new LocalLlamaEmbeddingProvider(
+          this.config.local.embedderUrl,
+          "embeddinggemma-300m-q4",
+          this.config.local.dimensions
+        );
+        const ok = await local.checkHealth();
+        if (ok) {
+          selectedProvider = local;
+          logReason = "probe succeeded";
+        } else {
+          // Local stack is down or unreachable; check cloud credentials
+          const apiKey = this.config.cloud.apiKey || process.env.GEMINI_API_KEY;
+          const localError = local.lastHealthError || "connect ECONNREFUSED";
+          if (!apiKey) {
+            throw new Error(
+              `No embedding provider available: Local embedder is not responding at ${this.config.local.embedderUrl} (${localError}) and cloud GEMINI_API_KEY is not set.`
+            );
+          }
+          try {
+            selectedProvider = new GeminiEmbeddingProvider(
+              apiKey,
+              this.config.cloud.embeddingModel,
+              this.config.cloud.dimensions
+            );
+            logReason = `local probe failed: ${localError}`;
+          } catch (err: any) {
+            throw new Error(
+              `No embedding provider available: Local embedder is not responding at ${this.config.local.embedderUrl} (${localError}) and cloud provider failed: ${err.message}`
+            );
+          }
+        }
+      }
+
+      this.embeddingProvider = selectedProvider;
+      this.retriever = new HybridRetriever(
+        this.db,
+        this.embeddingProvider,
+        this.config,
+        this.localReranker
+      );
+      this.initialized = true;
+
+      // Startup provider logging
+      const sourceLabel =
+        selectedProvider.providerType === "cloud" ? "cloud" : "local";
+      console.log(
+        `[memory] embedder: ${selectedProvider.modelName} (${sourceLabel})${logReason ? ` — ${logReason}` : ""}`
+      );
+
+      // Check manifest identity
+      const manifest = this.db.getIndexManifest();
+      if (manifest) {
+        const isManifestMatch =
+          manifest.modelName === selectedProvider.modelName &&
+          manifest.dimensions === selectedProvider.dimensions &&
+          manifest.providerType === selectedProvider.providerType;
+        if (!isManifestMatch) {
+          console.warn(
+            `[memory] ⚠️ Index identity mismatch: Index was built with ${manifest.providerType}:${manifest.modelName}:${manifest.dimensions}d, but active embedder is ${selectedProvider.providerType}:${selectedProvider.modelName}:${selectedProvider.dimensions}d. Search will skip mismatched embeddings. Re-index to use them.`
+          );
+        }
+      }
+    })();
+
+    return this.initPromise;
+  }
+
+  public async ensureInitialized(): Promise<void> {
+    if (!this.initialized) {
+      await this.init();
+    }
+  }
+
+  public get activeEmbeddingProvider(): EmbeddingProvider {
+    return this.embeddingProvider;
+  }
+
+  public get retrieverInstance(): HybridRetriever {
+    return this.retriever;
+  }
 
   async index(
     onProgress?: (status: {
@@ -105,6 +189,7 @@ export class MemoryEngine {
     deleted: number;
     totalChunks: number;
   }> {
+    await this.ensureInitialized();
     onProgress?.({ phase: "scanning", message: "Scanning project directory..." });
     const scannedFiles = this.scanner.scan();
     const existingDbFiles = this.db.getAllFiles();
@@ -205,6 +290,7 @@ export class MemoryEngine {
 
       for (let cIdx = 0; cIdx < chunks.length; cIdx++) {
         const chunk = chunks[cIdx];
+        chunk.providerType = this.embeddingProvider.providerType;
         const embedding = await this.embeddingProvider.embedDocument({
           text: chunk.content,
           title: file.filepath,
@@ -218,6 +304,14 @@ export class MemoryEngine {
 
       indexedCount++;
     }
+
+    // Record index embedding identity manifest (Requirement 4)
+    this.db.setIndexManifest({
+      providerType: this.embeddingProvider.providerType,
+      modelName: this.embeddingProvider.modelName,
+      dimensions: this.embeddingProvider.dimensions,
+      updatedAt: Date.now(),
+    });
 
     onProgress?.({ phase: "completed", message: "Indexing completed." });
 
@@ -234,6 +328,7 @@ export class MemoryEngine {
     query: string,
     options: SearchOptions = {}
   ): Promise<RetrievedContext[]> {
+    await this.ensureInitialized();
     return this.retriever.search(query, options);
   }
 
@@ -245,6 +340,7 @@ export class MemoryEngine {
     model?: string,
     systemDirective?: string
   ): Promise<{ answer: string; contexts: RetrievedContext[]; modelUsed: string }> {
+    await this.ensureInitialized();
     const contexts = await this.search(query, { limit: 4 });
     const contextText = contexts
       .map(
@@ -284,6 +380,7 @@ export class MemoryEngine {
     memoryType: MemoryType = "user_interaction",
     metadata?: Record<string, unknown>
   ): Promise<string> {
+    await this.ensureInitialized();
     const id = `mem_note_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const now = Date.now();
 
@@ -304,6 +401,7 @@ export class MemoryEngine {
       embedding,
       embeddingModel: this.embeddingProvider.modelName,
       embeddingDimension: this.embeddingProvider.dimensions,
+      providerType: this.embeddingProvider.providerType,
       createdAt: now,
       updatedAt: now,
     };
@@ -317,6 +415,7 @@ export class MemoryEngine {
     caption = "UI Viewport Screenshot",
     metadata?: Record<string, unknown>
   ): Promise<string> {
+    await this.ensureInitialized();
     const id = `mem_img_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const now = Date.now();
 
@@ -342,6 +441,7 @@ export class MemoryEngine {
       embedding,
       embeddingModel: this.embeddingProvider.modelName,
       embeddingDimension: this.embeddingProvider.dimensions,
+      providerType: this.embeddingProvider.providerType,
       createdAt: now,
       updatedAt: now,
     };

@@ -14,7 +14,8 @@ export class MemoryMcpServer {
     });
   }
 
-  public start() {
+  public async start() {
+    await this.engine.init();
     this.rl.on("line", async (line) => {
       if (!line.trim()) return;
 

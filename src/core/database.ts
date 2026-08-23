@@ -76,6 +76,9 @@ export class MemoryDatabase {
       this.db.exec("ALTER TABLE chunks ADD COLUMN b64_source TEXT;");
     } catch (e) {}
     try {
+      this.db.exec("ALTER TABLE chunks ADD COLUMN provider_type TEXT;");
+    } catch (e) {}
+    try {
       this.db.exec("CREATE INDEX IF NOT EXISTS idx_chunks_modal ON chunks(modal_type);");
     } catch (e) {}
 
@@ -107,10 +110,21 @@ export class MemoryDatabase {
       this.db.exec("ALTER TABLE memories ADD COLUMN b64_source TEXT;");
     } catch (e) {}
     try {
+      this.db.exec("ALTER TABLE memories ADD COLUMN provider_type TEXT;");
+    } catch (e) {}
+    try {
       this.db.exec("CREATE INDEX IF NOT EXISTS idx_memories_modal ON memories(modal_type);");
     } catch (e) {}
 
-    // 4. Relations table (GraphRAG architectural graph)
+    // 4. Metadata / Manifest table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `);
+
+    // 5. Relations table (GraphRAG architectural graph)
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS relations (
         id TEXT PRIMARY KEY,
@@ -128,7 +142,7 @@ export class MemoryDatabase {
       CREATE INDEX IF NOT EXISTS idx_rel_type ON relations(relation);
     `);
 
-    // 5. FTS5 Virtual Tables & Triggers
+    // 6. FTS5 Virtual Tables & Triggers
     try {
       this.db.exec(`
         CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
@@ -217,13 +231,16 @@ export class MemoryDatabase {
 
   insertChunk(chunk: ChunkRecord, filepath = "") {
     const blob = chunk.embedding ? float32ToBuffer(chunk.embedding) : null;
+    const providerType =
+      chunk.providerType ||
+      (chunk.embeddingModel.includes("gemini") ? "cloud" : "local_llama");
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO chunks (
         id, file_id, chunk_index, content, content_hash, source_type,
         modal_type, b64_source,
         symbol_name, symbol_kind, heading, start_line, end_line,
-        embedding, embedding_model, embedding_dimension, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        embedding, embedding_model, embedding_dimension, provider_type, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -243,6 +260,7 @@ export class MemoryDatabase {
       blob,
       chunk.embeddingModel,
       chunk.embeddingDimension,
+      providerType,
       chunk.createdAt,
       chunk.updatedAt
     );
@@ -267,6 +285,7 @@ export class MemoryDatabase {
              heading, start_line as startLine, end_line as endLine,
              embedding, embedding_model as embeddingModel,
              embedding_dimension as embeddingDimension,
+             provider_type as providerType,
              created_at as createdAt, updated_at as updatedAt
       FROM chunks WHERE file_id = ? ORDER BY chunk_index ASC
     `);
@@ -274,6 +293,9 @@ export class MemoryDatabase {
     const rows = stmt.all(fileId) as any[];
     return rows.map((r) => ({
       ...r,
+      providerType:
+        r.providerType ||
+        (r.embeddingModel?.includes("gemini") ? "cloud" : "local_llama"),
       embedding: r.embedding ? bufferToFloat32(r.embedding) : undefined,
     }));
   }
@@ -289,6 +311,7 @@ export class MemoryDatabase {
              c.heading, c.start_line as startLine, c.end_line as endLine,
              c.embedding, c.embedding_model as embeddingModel,
              c.embedding_dimension as embeddingDimension,
+             c.provider_type as providerType,
              c.created_at as createdAt, c.updated_at as updatedAt,
              f.filepath, f.file_type as fileType
       FROM chunks c
@@ -299,17 +322,23 @@ export class MemoryDatabase {
     const rows = stmt.all() as any[];
     return rows.map((r) => ({
       ...r,
+      providerType:
+        r.providerType ||
+        (r.embeddingModel?.includes("gemini") ? "cloud" : "local_llama"),
       embedding: r.embedding ? bufferToFloat32(r.embedding) : undefined,
     }));
   }
 
   upsertMemory(memory: MemoryRecord) {
     const blob = memory.embedding ? float32ToBuffer(memory.embedding) : null;
+    const providerType =
+      memory.providerType ||
+      (memory.embeddingModel.includes("gemini") ? "cloud" : "local_llama");
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO memories (
         id, memory_type, modality, modal_type, b64_source, title, content, metadata,
-        embedding, embedding_model, embedding_dimension, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        embedding, embedding_model, embedding_dimension, provider_type, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -324,6 +353,7 @@ export class MemoryDatabase {
       blob,
       memory.embeddingModel,
       memory.embeddingDimension,
+      providerType,
       memory.createdAt,
       memory.updatedAt
     );
@@ -345,6 +375,7 @@ export class MemoryDatabase {
              b64_source as b64Source, title, content,
              metadata, embedding, embedding_model as embeddingModel,
              embedding_dimension as embeddingDimension,
+             provider_type as providerType,
              created_at as createdAt, updated_at as updatedAt
       FROM memories WHERE embedding IS NOT NULL
     `);
@@ -352,9 +383,54 @@ export class MemoryDatabase {
     const rows = stmt.all() as any[];
     return rows.map((r) => ({
       ...r,
+      providerType:
+        r.providerType ||
+        (r.embeddingModel?.includes("gemini") ? "cloud" : "local_llama"),
       metadata: r.metadata ? JSON.parse(r.metadata) : undefined,
       embedding: r.embedding ? bufferToFloat32(r.embedding) : undefined,
     }));
+  }
+
+  setMeta(key: string, value: string): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO meta (key, value) VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `);
+    stmt.run(key, value);
+  }
+
+  getMeta(key: string): string | null {
+    try {
+      const stmt = this.db.prepare("SELECT value FROM meta WHERE key = ?");
+      const row = stmt.get(key) as any;
+      return row ? row.value : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  setIndexManifest(manifest: {
+    providerType: string;
+    modelName: string;
+    dimensions: number;
+    updatedAt?: number;
+  }): void {
+    this.setMeta("index_manifest", JSON.stringify(manifest));
+  }
+
+  getIndexManifest(): {
+    providerType: string;
+    modelName: string;
+    dimensions: number;
+    updatedAt?: number;
+  } | null {
+    const raw = this.getMeta("index_manifest");
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch (e) {
+      return null;
+    }
   }
 
   insertRelation(relation: MemoryRelation) {

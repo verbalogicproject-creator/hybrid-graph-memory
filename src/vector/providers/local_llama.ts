@@ -9,6 +9,8 @@ export class LocalLlamaEmbeddingProvider implements EmbeddingProvider {
   readonly dimensions: number;
   readonly providerType = "local_llama" as const;
   private embedderUrl: string;
+  isAvailable = false;
+  lastHealthError?: string;
 
   constructor(
     embedderUrl = "http://127.0.0.1:8145/v1/embeddings",
@@ -18,6 +20,27 @@ export class LocalLlamaEmbeddingProvider implements EmbeddingProvider {
     this.embedderUrl = embedderUrl;
     this.modelName = modelName;
     this.dimensions = dimensions;
+    this.checkHealth();
+  }
+
+  async checkHealth(): Promise<boolean> {
+    try {
+      const res = await fetch(
+        this.embedderUrl.replace("/v1/embeddings", "/health"),
+        { signal: AbortSignal.timeout(2000) }
+      );
+      this.isAvailable = res.ok;
+      if (!res.ok) {
+        this.lastHealthError = `HTTP ${res.status}: ${res.statusText}`;
+      } else {
+        this.lastHealthError = undefined;
+      }
+      return res.ok;
+    } catch (e: any) {
+      this.isAvailable = false;
+      this.lastHealthError = e.message || String(e);
+      return false;
+    }
   }
 
   async embedDocument(input: DocumentEmbeddingInput): Promise<Float32Array> {

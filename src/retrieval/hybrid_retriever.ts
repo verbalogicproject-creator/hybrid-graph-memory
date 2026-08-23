@@ -3,6 +3,7 @@ import { MemoryDatabase } from "../core/database";
 import {
   ChunkRecord,
   EmbeddingProvider,
+  EmbeddingSpaceMismatchError,
   LocalRerankerProvider,
   MemoryRecord,
   RetrievedContext,
@@ -15,6 +16,11 @@ import { reciprocalRankFusion } from "./rank_fusion";
 
 export class HybridRetriever {
   private lexicalScorer = new LexicalScorer();
+  public lastSearchStats?: {
+    totalSkipped: number;
+    skippedByModel: Record<string, number>;
+    matchingVectorsCount: number;
+  };
 
   constructor(
     private db: MemoryDatabase,
@@ -41,7 +47,7 @@ export class HybridRetriever {
     const chunks = this.db.getAllChunksWithEmbeddings();
     const memories = this.db.getAllMemoriesWithEmbeddings();
 
-    // 3. Semantic scoring
+    // 3. Semantic scoring with strict composite identity filtering
     const semanticChunkMatches: Array<{
       id: string;
       score: number;
@@ -50,8 +56,33 @@ export class HybridRetriever {
       chunk: ChunkRecord & { filepath: string; fileType: string };
     }> = [];
 
+    const skippedByModel: Record<string, number> = {};
+    let totalVectorsEvaluated = 0;
+    let matchingVectorsCount = 0;
+
+    const activeModel = this.embeddingProvider.modelName;
+    const activeDimensions = this.embeddingProvider.dimensions;
+    const activeProviderType = this.embeddingProvider.providerType;
+
     for (const chunk of chunks) {
       if (!chunk.embedding) continue;
+      totalVectorsEvaluated++;
+
+      const chunkProviderType =
+        chunk.providerType ||
+        (chunk.embeddingModel.includes("gemini") ? "cloud" : "local_llama");
+      const isMatch =
+        chunk.embeddingModel === activeModel &&
+        chunk.embeddingDimension === activeDimensions &&
+        chunkProviderType === activeProviderType;
+
+      if (!isMatch) {
+        skippedByModel[chunk.embeddingModel] =
+          (skippedByModel[chunk.embeddingModel] || 0) + 1;
+        continue;
+      }
+
+      matchingVectorsCount++;
       const score = cosineSimilarity(queryVector, chunk.embedding);
       if (score >= this.config.minSimilarityThreshold) {
         semanticChunkMatches.push({
@@ -74,6 +105,23 @@ export class HybridRetriever {
 
     for (const memory of memories) {
       if (!memory.embedding) continue;
+      totalVectorsEvaluated++;
+
+      const memoryProviderType =
+        memory.providerType ||
+        (memory.embeddingModel.includes("gemini") ? "cloud" : "local_llama");
+      const isMatch =
+        memory.embeddingModel === activeModel &&
+        memory.embeddingDimension === activeDimensions &&
+        memoryProviderType === activeProviderType;
+
+      if (!isMatch) {
+        skippedByModel[memory.embeddingModel] =
+          (skippedByModel[memory.embeddingModel] || 0) + 1;
+        continue;
+      }
+
+      matchingVectorsCount++;
       const score = cosineSimilarity(queryVector, memory.embedding);
       if (score >= this.config.minSimilarityThreshold) {
         semanticMemoryMatches.push({
@@ -84,6 +132,38 @@ export class HybridRetriever {
           memory,
         });
       }
+    }
+
+    const totalSkipped = Object.values(skippedByModel).reduce(
+      (a, b) => a + b,
+      0
+    );
+
+    this.lastSearchStats = {
+      totalSkipped,
+      skippedByModel,
+      matchingVectorsCount,
+    };
+
+    // Fail-closed when active space is empty but index contains stored vectors
+    if (totalVectorsEvaluated > 0 && matchingVectorsCount === 0) {
+      throw new EmbeddingSpaceMismatchError(
+        activeProviderType,
+        activeModel,
+        activeDimensions,
+        skippedByModel,
+        totalSkipped
+      );
+    }
+
+    // Report skipped records if there are any
+    if (totalSkipped > 0) {
+      const details = Object.entries(skippedByModel)
+        .map(([model, count]) => `${count.toLocaleString()} chunks skipped — embedded with ${model}`)
+        .join(", ");
+      console.warn(
+        `[memory] ⚠️ ${details}, active embedder is ${activeModel}. Re-index to use them.`
+      );
     }
 
     const allSemanticMatches = [

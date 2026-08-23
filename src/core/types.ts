@@ -56,6 +56,7 @@ export interface ChunkRecord {
   embedding?: Float32Array;
   embeddingModel: string;
   embeddingDimension: number;
+  providerType?: "cloud" | "local_llama";
   createdAt: number;
   updatedAt: number;
 }
@@ -72,6 +73,7 @@ export interface MemoryRecord {
   embedding?: Float32Array;
   embeddingModel: string;
   embeddingDimension: number;
+  providerType?: "cloud" | "local_llama";
   createdAt: number;
   updatedAt: number;
 }
@@ -112,6 +114,37 @@ export interface EmbeddingProvider {
   readonly modelName: string;
   readonly dimensions: number;
   readonly providerType: "cloud" | "local_llama";
+  readonly isAvailable?: boolean;
+  checkHealth?(): Promise<boolean>;
+  readonly lastHealthError?: string;
+}
+
+export class EmbeddingSpaceMismatchError extends Error {
+  readonly code = "EMBEDDING_SPACE_MISMATCH";
+  readonly totalSkipped: number;
+  readonly skippedByModel: Record<string, number>;
+  readonly activeModel: string;
+  readonly activeProviderType: string;
+
+  constructor(
+    activeProviderType: string,
+    activeModel: string,
+    activeDimensions: number,
+    skippedByModel: Record<string, number>,
+    totalSkipped: number
+  ) {
+    const details = Object.entries(skippedByModel)
+      .map(([model, count]) => `${count.toLocaleString()} record(s) embedded with ${model}`)
+      .join(", ");
+    super(
+      `Embedding space mismatch: 0 matching records for active embedder '${activeProviderType}:${activeModel}:${activeDimensions}d'. ${totalSkipped.toLocaleString()} record(s) skipped (${details}). Re-index to use them.`
+    );
+    this.name = "EmbeddingSpaceMismatchError";
+    this.activeProviderType = activeProviderType;
+    this.activeModel = activeModel;
+    this.skippedByModel = skippedByModel;
+    this.totalSkipped = totalSkipped;
+  }
 }
 
 export interface LocalRerankResult {

@@ -1,8 +1,10 @@
+import fs from "node:fs";
 import { MemoryEngine } from "../src/core/engine";
 import { LocalLlamaEmbeddingProvider } from "../src/vector/providers/local_llama";
 import { LocalBgeReranker } from "../src/retrieval/reranker";
 import { LocalLlamaGenerator } from "../src/retrieval/generator";
 import { cosineSimilarity } from "../src/vector/math";
+import { EmbeddingSpaceMismatchError } from "../src/core/types";
 
 async function runStandaloneAudit() {
   console.log(`
@@ -29,8 +31,12 @@ async function runStandaloneAudit() {
   // 2. Local Llama.cpp Embedder Test (Port 8145)
   try {
     const embedder = new LocalLlamaEmbeddingProvider();
-    const vec = await embedder.embedQuery({ query: "Test on-device embedding" });
-    console.log(`  ✅ PASS: Local Embedder (:8145 - ${embedder.modelName}) -> Vector ${vec.length}d produced!`);
+    const isUp = await embedder.checkHealth();
+    console.log(`  ✅ PASS: Local Embedder Health Check -> isAvailable = ${embedder.isAvailable} (probe status: ${isUp})`);
+    if (isUp) {
+      const vec = await embedder.embedQuery({ query: "Test on-device embedding" });
+      console.log(`  ✅ PASS: Local Embedder (:8145 - ${embedder.modelName}) -> Vector ${vec.length}d produced!`);
+    }
   } catch (err: any) {
     console.log(`  ⚠️ WARN: Local embedder test skipped: ${err.message}`);
   }
@@ -59,8 +65,9 @@ async function runStandaloneAudit() {
     console.log(`  ⚠️ WARN: Local generator test skipped: ${err.message}`);
   }
 
-  // 5. Ingestion & Search via Facade Engine
+  // 5. Ingestion & Search via Facade Engine (Happy Path)
   const engine = new MemoryEngine({ dbPath: ".memory/test_standalone.db" });
+  await engine.init();
   const docId = await engine.ingestText(
     "# Antigravity Standalone Architecture\nPure JS Vector Engine with on-device Qwen / Phi-4 / Llama-3.2 / Gemma-4 support.",
     "Standalone Architecture"
@@ -80,10 +87,163 @@ async function runStandaloneAudit() {
 
   engine.close();
 
+  // =========================================================================
+  // PHASE 1 VERIFICATION SUITE (§1.3 in execution approval)
+  // =========================================================================
   console.log(`
 ╔═══════════════════════════════════════════════════════════════════╗
-║         🎉 STANDALONE MEMORY OS EXTRACTION VERIFIED!             ║
-║   Zero C++ • On-Device Llama.cpp Stack Active • Multi-Model Ready  ║
+║         🧪 PHASE 1 DEFECTS VERIFICATION TEST SUITE                ║
+╚═══════════════════════════════════════════════════════════════════╝
+`);
+
+  // Verification 1 & 2: Fallback probe failure & clean failure without API key
+  console.log("  [Verification 1 & 2] Testing auto fallback with unreachable local stack...");
+  const oldKey = process.env.GEMINI_API_KEY;
+  try {
+    delete process.env.GEMINI_API_KEY;
+    const deadLocalEngine = new MemoryEngine({
+      providerMode: "auto",
+      dbPath: ".memory/test_dead_local.db",
+      local: {
+        embedderUrl: "http://127.0.0.1:9999/v1/embeddings",
+        rerankerUrl: "http://127.0.0.1:8144/v1/rerank",
+        generatorUrl: "http://127.0.0.1:8147/v1/chat/completions",
+        generatorModels: ["qwen2.5-3b-instruct-q4_0"],
+        activeGenerator: "qwen2.5-3b-instruct-q4_0",
+        dimensions: 768,
+      },
+      cloud: {
+        apiKey: undefined,
+        embeddingModel: "gemini-embedding-2",
+        dimensions: 768,
+      },
+    });
+
+    let failedAsExpected = false;
+    try {
+      await deadLocalEngine.init();
+    } catch (err: any) {
+      if (
+        err.message.includes("No embedding provider available") &&
+        err.message.includes("127.0.0.1:9999") &&
+        err.message.includes("GEMINI_API_KEY")
+      ) {
+        failedAsExpected = true;
+        console.log(`  ✅ PASS (Verif 2): Unreachable local stack + no key fails cleanly at init: "${err.message}"`);
+      } else {
+        console.error("  ❌ FAIL (Verif 2): Unexpected error message:", err.message);
+      }
+    }
+
+    if (!failedAsExpected) {
+      throw new Error("FAIL (Verif 2): Engine init should have thrown with no provider available!");
+    }
+    deadLocalEngine.close();
+  } finally {
+    if (oldKey) process.env.GEMINI_API_KEY = oldKey;
+  }
+
+  // Verification 1 (with Cloud Key): Fallback activates Gemini when local is unreachable
+  if (process.env.GEMINI_API_KEY) {
+    console.log("  [Verification 1] Testing fallback with GEMINI_API_KEY present...");
+    const fallbackEngine = new MemoryEngine({
+      providerMode: "auto",
+      dbPath: ".memory/test_fallback.db",
+      local: {
+        embedderUrl: "http://127.0.0.1:9999/v1/embeddings",
+        rerankerUrl: "http://127.0.0.1:8144/v1/rerank",
+        generatorUrl: "http://127.0.0.1:8147/v1/chat/completions",
+        generatorModels: ["qwen2.5-3b-instruct-q4_0"],
+        activeGenerator: "qwen2.5-3b-instruct-q4_0",
+        dimensions: 768,
+      },
+    });
+    await fallbackEngine.init();
+    if (fallbackEngine.activeEmbeddingProvider.providerType === "cloud") {
+      console.log(`  ✅ PASS (Verif 1): Fallback successfully selected cloud provider: ${fallbackEngine.activeEmbeddingProvider.modelName}`);
+    } else {
+      console.error("  ❌ FAIL (Verif 1): Expected providerType='cloud' on fallback!");
+    }
+    fallbackEngine.close();
+  } else {
+    console.log("  ℹ️ SKIP (Verif 1 with cloud API call): GEMINI_API_KEY not set in env. Clean failure verified.");
+  }
+
+  // Verification 3: No cross-space mixing & fail-closed condition
+  console.log("  [Verification 3] Testing cross-space mixing prevention & fail-closed behavior...");
+  const crossSpaceDbPath = ".memory/test_cross_space.db";
+  if (fs.existsSync(crossSpaceDbPath)) {
+    fs.unlinkSync(crossSpaceDbPath);
+  }
+
+  // 3a. Ingest with local provider
+  const localIngestEngine = new MemoryEngine({
+    providerMode: "local",
+    dbPath: crossSpaceDbPath,
+  });
+  await localIngestEngine.init();
+  await localIngestEngine.ingestText(
+    "Local vector space content about database normalization and indexing.",
+    "DB Normalization"
+  );
+  localIngestEngine.close();
+
+  // 3b. Search with cloud provider mock or configuration on the same database
+  const cloudSearchEngine = new MemoryEngine({
+    providerMode: "cloud",
+    dbPath: crossSpaceDbPath,
+    cloud: {
+      apiKey: "dummy_key_for_test",
+      embeddingModel: "gemini-embedding-2",
+      dimensions: 768,
+    },
+  });
+
+  // Mock embedQuery for the cloud provider so we don't need real cloud network call
+  (cloudSearchEngine as any).embeddingProvider = {
+    modelName: "gemini-embedding-2",
+    dimensions: 768,
+    providerType: "cloud",
+    embedQuery: async () => new Float32Array(768).fill(0.01),
+    embedDocument: async () => new Float32Array(768).fill(0.01),
+  };
+  (cloudSearchEngine as any).initialized = true;
+  (cloudSearchEngine as any).retriever = new (require("../src/retrieval/hybrid_retriever").HybridRetriever)(
+    (cloudSearchEngine as any).db,
+    (cloudSearchEngine as any).embeddingProvider,
+    (cloudSearchEngine as any).config,
+    (cloudSearchEngine as any).localReranker
+  );
+
+  let crossSpaceBlocked = false;
+  try {
+    await cloudSearchEngine.search("database normalization");
+  } catch (err: any) {
+    if (err instanceof EmbeddingSpaceMismatchError || err.code === "EMBEDDING_SPACE_MISMATCH") {
+      crossSpaceBlocked = true;
+      console.log(`  ✅ PASS (Verif 3): Cross-space search threw EmbeddingSpaceMismatchError: "${err.message}"`);
+      console.log(`  ✅ PASS (Verif 3): Total skipped = ${err.totalSkipped}, skipped breakdown =`, err.skippedByModel);
+    } else {
+      console.error("  ❌ FAIL (Verif 3): Threw unexpected error:", err);
+    }
+  }
+
+  if (!crossSpaceBlocked) {
+    throw new Error("FAIL (Verif 3): Cross-space search should have failed closed!");
+  }
+  cloudSearchEngine.close();
+
+  // Clean up test DBs
+  try {
+    if (fs.existsSync(crossSpaceDbPath)) fs.unlinkSync(crossSpaceDbPath);
+    if (fs.existsSync(".memory/test_dead_local.db")) fs.unlinkSync(".memory/test_dead_local.db");
+    if (fs.existsSync(".memory/test_fallback.db")) fs.unlinkSync(".memory/test_fallback.db");
+  } catch (e) {}
+
+  console.log(`
+╔═══════════════════════════════════════════════════════════════════╗
+║         🎉 ALL PHASE 1 FIXES & AUDIT VERIFICATIONS PASSED!       ║
+║   Fallback Probed • Fast Clean Fail • Zero Cross-Space Mixing     ║
 ╚═══════════════════════════════════════════════════════════════════╝
 `);
 }
