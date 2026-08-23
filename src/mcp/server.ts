@@ -78,6 +78,44 @@ export class MemoryMcpServer {
                 },
               },
             },
+            {
+              name: "agy_load_operational_asset",
+              description: "Retrieve an operational asset (prompt, workflow, skill, or rule) by its trigger tag or query (Retrieval only — state tracking managed by agent)",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  triggerTag: { type: "string", description: "Trigger tag (e.g. 'deploy_flow', 'code_review_prompt')" },
+                  assetType: {
+                    type: "string",
+                    enum: ["prompt", "workflow", "skill", "rule"],
+                    description: "Optional asset type filter",
+                  },
+                },
+                required: ["triggerTag"],
+              },
+            },
+            {
+              name: "agy_ingest_operational_asset",
+              description: "Ingest a prompt, workflow, skill, or rule operational asset with exact trigger tags",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  type: {
+                    type: "string",
+                    enum: ["prompt", "workflow", "skill", "rule"],
+                    description: "Type of operational asset",
+                  },
+                  title: { type: "string", description: "Title / Name of the operational asset" },
+                  content: { type: "string", description: "Prompt markdown or workflow procedure specification" },
+                  triggerTags: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Exact trigger tags (e.g. ['@deploy', 'release_checklist'])",
+                  },
+                },
+                required: ["type", "title", "content"],
+              },
+            },
           ],
         },
       };
@@ -122,6 +160,35 @@ export class MemoryMcpServer {
           id,
           result: {
             content: [{ type: "text", text: JSON.stringify(filtered, null, 2) }],
+          },
+        };
+      }
+
+      if (name === "agy_load_operational_asset") {
+        const asset = await this.engine.getOperationalAssetByTrigger(args.triggerTag);
+        return {
+          jsonrpc: "2.0",
+          id,
+          result: {
+            content: [{ type: "text", text: asset ? JSON.stringify(asset, null, 2) : "null" }],
+            found: !!asset,
+          },
+        };
+      }
+
+      if (name === "agy_ingest_operational_asset") {
+        const assetId = await this.engine.ingestOperationalAsset({
+          type: args.type,
+          title: args.title,
+          content: args.content,
+          triggerTags: args.triggerTags,
+        });
+        return {
+          jsonrpc: "2.0",
+          id,
+          result: {
+            content: [{ type: "text", text: `Operational asset ingested successfully: ${assetId}` }],
+            assetId,
           },
         };
       }

@@ -449,10 +449,188 @@ export class AuthenticationService extends BaseService implements IAuthValidator
     if (fs.existsSync(waveBDbPath)) fs.unlinkSync(waveBDbPath);
   } catch (e) {}
 
+  // =========================================================================
+  // PHASE 2 WAVE C: OPERATIONAL ASSETS VERIFICATION
+  // =========================================================================
   console.log(`
 ╔═══════════════════════════════════════════════════════════════════╗
-║         🎉 ALL PHASE 1, WAVE A & WAVE B AUDITS PASSED!           ║
-║   AST GraphRAG • Namespace Scoping • Provenance • Recency         ║
+║         ⚡ PHASE 2 WAVE C: OPERATIONAL ASSETS VERIFICATION        ║
+╚═══════════════════════════════════════════════════════════════════╝
+`);
+
+  const waveCDbPath = ".memory/test_wave_c_operational.db";
+  if (fs.existsSync(waveCDbPath)) fs.unlinkSync(waveCDbPath);
+
+  const waveCEngine = new MemoryEngine({
+    dbPath: waveCDbPath,
+    workspace: "ops_workspace",
+    projectName: "ops_project",
+  });
+  await waveCEngine.init();
+
+  // Ingest Prompt Asset
+  const promptId = await waveCEngine.ingestOperationalAsset({
+    type: "prompt",
+    title: "Conventional Commit Prompt",
+    content: "Generate structured conventional commits following feat(scope): subject format.",
+    triggerTags: ["git_commit", "commit_prompt", "@commit"],
+  });
+
+  // Ingest Workflow Asset
+  const workflowId = await waveCEngine.ingestOperationalAsset({
+    type: "workflow",
+    title: "Production Deployment Workflow",
+    content: "Step 1: Run audit suite. Step 2: Bump semver version. Step 3: Publish to registry.",
+    triggerTags: ["deploy_flow", "release_pipeline", "@deploy"],
+  });
+
+  // Test 1: Exact trigger tag lookup
+  console.log("  [Wave C Item 1] Testing exact trigger tag retrieval (@commit & deploy_flow)...");
+  const commitAsset = await waveCEngine.getOperationalAssetByTrigger("@commit");
+  const deployAsset = await waveCEngine.getOperationalAssetByTrigger("deploy_flow");
+
+  if (commitAsset && commitAsset.id === promptId && commitAsset.memoryType === "prompt") {
+    console.log(`  ✅ PASS (Wave C Item 1): Prompt asset retrieved by exact trigger '@commit' -> "${commitAsset.symbol}"`);
+  } else {
+    throw new Error("FAIL (Wave C Item 1): Failed to retrieve prompt asset by trigger tag!");
+  }
+
+  if (deployAsset && deployAsset.id === workflowId && deployAsset.memoryType === "workflow") {
+    console.log(`  ✅ PASS (Wave C Item 1): Workflow asset retrieved by exact trigger 'deploy_flow' -> "${deployAsset.symbol}"`);
+  } else {
+    throw new Error("FAIL (Wave C Item 1): Failed to retrieve workflow asset by trigger tag!");
+  }
+
+  // Test 2: Filtered search by memoryType
+  console.log("  [Wave C Item 2] Testing search with filterMemoryTypes=['workflow']...");
+  const workflowOnlyResults = await waveCEngine.search("deployment procedure", {
+    filterMemoryTypes: ["workflow"],
+  });
+
+  if (
+    workflowOnlyResults.length > 0 &&
+    workflowOnlyResults.every((r) => r.memoryType === "workflow")
+  ) {
+    console.log(`  ✅ PASS (Wave C Item 2): filterMemoryTypes strictly restricted results to workflows (${workflowOnlyResults.length} result)`);
+  } else {
+    throw new Error("FAIL (Wave C Item 2): filterMemoryTypes failed to restrict results!");
+  }
+
+  // =========================================================================
+  // COMPREHENSIVE EDGE-CASES & GAPS-HANDLING TEST SUITE
+  // =========================================================================
+  console.log(`
+╔═══════════════════════════════════════════════════════════════════╗
+║         🛡️ EDGE-CASES, GAPS-HANDLING & RESILIENCE AUDIT           ║
+╚═══════════════════════════════════════════════════════════════════╝
+`);
+
+  // Edge Case 1: Empty, pure-whitespace, and symbol queries
+  console.log("  [Edge Case 1] Testing Empty / Whitespace / Punctuation queries...");
+  const emptyRes = await waveCEngine.search("");
+  const whitespaceRes = await waveCEngine.search("   \n\t   ");
+  const symbolsRes = await waveCEngine.search("!@#$%^&*()_+=-~`");
+  console.log(`  📊 Queries handled gracefully -> empty: ${emptyRes.length}, whitespace: ${whitespaceRes.length}, symbols: ${symbolsRes.length}`);
+  console.log("  ✅ PASS (Edge Case 1): Empty and punctuation queries do not crash engine.");
+
+  // Edge Case 2: Non-existent trigger tag lookup
+  console.log("  [Edge Case 2] Testing non-existent trigger tag lookup...");
+  const missingAsset = await waveCEngine.getOperationalAssetByTrigger("missing_non_existent_tag_9999");
+  if (missingAsset === null) {
+    console.log("  ✅ PASS (Edge Case 2): Non-existent trigger tag returns null safely.");
+  } else {
+    throw new Error("FAIL (Edge Case 2): Expected null for missing trigger tag!");
+  }
+
+  // Edge Case 3: Namespace isolation across operational assets
+  console.log("  [Edge Case 3] Testing multi-tenant operational asset isolation...");
+  const foreignAssetId = await waveCEngine.ingestOperationalAsset({
+    type: "workflow",
+    title: "Foreign Workspace Deploy",
+    content: "Step 1: Staging deploy only.",
+    triggerTags: ["deploy_flow"],
+    metadata: {
+      workspace: "other_corp",
+      project: "other_project",
+    },
+  });
+
+  const isolatedOpsAsset = await waveCEngine.getOperationalAssetByTrigger("deploy_flow", {
+    workspace: "ops_workspace",
+    project: "ops_project",
+  });
+  if (isolatedOpsAsset && isolatedOpsAsset.id === workflowId && isolatedOpsAsset.id !== foreignAssetId) {
+    console.log(`  ✅ PASS (Edge Case 3): Operational trigger lookup strictly honors workspace boundaries (${isolatedOpsAsset.workspace})`);
+  } else {
+    throw new Error("FAIL (Edge Case 3): Cross-tenant operational asset leakage detected!");
+  }
+
+  // Edge Case 4: Unicode, Emojis, and Markdown Fences Ingestion
+  console.log("  [Edge Case 4] Testing Unicode emojis, CJK, and complex Markdown fences...");
+  const complexMarkdown = `
+# 🚀 Super Pipeline (スーパーパイプライン)
+\`\`\`yaml
+deploy:
+  environment: production
+  features: ["✨ AI Memory", "🔥 Realtime GraphRAG"]
+\`\`\`
+> [!NOTE]
+> Testing unicode handling: 内存系统 / メモリOS / نظام الذاكرة
+`;
+  const unicodeAssetId = await waveCEngine.ingestOperationalAsset({
+    type: "skill",
+    title: "Unicode Skill 🚀",
+    content: complexMarkdown,
+    triggerTags: ["unicode_skill", "🚀emoji"],
+  });
+
+  const unicodeRetrieved = await waveCEngine.getOperationalAssetByTrigger("unicode_skill");
+  if (unicodeRetrieved && unicodeRetrieved.content.includes("スーパーパイプライン")) {
+    console.log("  ✅ PASS (Edge Case 4): Full Unicode & Markdown fences persisted and retrieved flawlessly.");
+  } else {
+    throw new Error("FAIL (Edge Case 4): Failed to retrieve unicode asset!");
+  }
+
+  // Edge Case 5: Repeated Access Monotonicity
+  console.log("  [Edge Case 5] Testing repeated access count monotonicity...");
+  const initialCount = unicodeRetrieved?.accessCount || 0;
+  for (let i = 0; i < 5; i++) {
+    await waveCEngine.getOperationalAssetByTrigger("unicode_skill");
+  }
+  const finalUnicode = await waveCEngine.getOperationalAssetByTrigger("unicode_skill");
+  if (finalUnicode && (finalUnicode.accessCount || 0) > initialCount) {
+    console.log(`  ✅ PASS (Edge Case 5): Access count incremented monotonically (${initialCount} -> ${finalUnicode.accessCount})`);
+  } else {
+    throw new Error("FAIL (Edge Case 5): Access count monotonicity failed!");
+  }
+
+  // Edge Case 6: Engine Close & Re-open Persistence Idempotency
+  console.log("  [Edge Case 6] Testing Database Persistence & Re-open Idempotency...");
+  waveCEngine.close();
+
+  const reloadedEngine = new MemoryEngine({
+    dbPath: waveCDbPath,
+    workspace: "ops_workspace",
+    projectName: "ops_project",
+  });
+  await reloadedEngine.init();
+
+  const reloadedCommitAsset = await reloadedEngine.getOperationalAssetByTrigger("@commit");
+  if (reloadedCommitAsset && reloadedCommitAsset.id === promptId) {
+    console.log("  ✅ PASS (Edge Case 6): Reopened SQLite engine restored all operational assets and indexes flawlessly.");
+  } else {
+    throw new Error("FAIL (Edge Case 6): Failed to read records after engine re-open!");
+  }
+
+  reloadedEngine.close();
+  try {
+    if (fs.existsSync(waveCDbPath)) fs.unlinkSync(waveCDbPath);
+  } catch (e) {}
+
+  console.log(`
+╔═══════════════════════════════════════════════════════════════════╗
+║         🎉 ALL PHASES & COMPREHENSIVE EDGE-CASES PASSED!          ║
+║   Wave A (Schema) • Wave B (Graph) • Wave C (Ops) • 100% GREEN   ║
 ╚═══════════════════════════════════════════════════════════════════╝
 `);
 }

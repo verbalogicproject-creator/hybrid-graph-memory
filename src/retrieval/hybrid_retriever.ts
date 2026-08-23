@@ -50,6 +50,8 @@ export class HybridRetriever {
       workspace?: string;
       project?: string;
       module?: string;
+      memoryType?: string;
+      triggerTags?: string[];
     }) => {
       if (targetWorkspace && item.workspace && item.workspace !== targetWorkspace) {
         return false;
@@ -59,6 +61,19 @@ export class HybridRetriever {
       }
       if (targetModule && item.module && item.module !== targetModule) {
         return false;
+      }
+      if (
+        options.filterMemoryTypes &&
+        options.filterMemoryTypes.length > 0 &&
+        item.memoryType &&
+        !options.filterMemoryTypes.includes(item.memoryType as any)
+      ) {
+        return false;
+      }
+      if (options.triggerTag) {
+        if (!item.triggerTags || !item.triggerTags.includes(options.triggerTag)) {
+          return false;
+        }
       }
       return true;
     };
@@ -72,6 +87,10 @@ export class HybridRetriever {
     // 2. Fetch chunks and memories
     const chunks = this.db.getAllChunksWithEmbeddings();
     const memories = this.db.getAllMemoriesWithEmbeddings();
+
+    // Check for exact trigger tag matches in query (e.g., @prompt:xyz or #workflow:abc)
+    const queryTriggerMatch = query.match(/[@#]([A-Za-z0-9_:-]+)/);
+    const detectedTriggerTag = queryTriggerMatch ? queryTriggerMatch[1] : options.triggerTag;
 
     // 3. Semantic scoring with strict composite identity & namespace filtering
     const semanticChunkMatches: Array<{
@@ -113,7 +132,13 @@ export class HybridRetriever {
       }
 
       matchingVectorsCount++;
-      const score = cosineSimilarity(queryVector, chunk.embedding);
+      let score = cosineSimilarity(queryVector, chunk.embedding);
+
+      // Operational exact trigger tag boost
+      if (detectedTriggerTag && chunk.triggerTags?.includes(detectedTriggerTag)) {
+        score = Math.min(1.0, score + 0.35);
+      }
+
       if (score >= this.config.minSimilarityThreshold) {
         semanticChunkMatches.push({
           id: chunk.id,
@@ -158,7 +183,13 @@ export class HybridRetriever {
       }
 
       matchingVectorsCount++;
-      const score = cosineSimilarity(queryVector, memory.embedding);
+      let score = cosineSimilarity(queryVector, memory.embedding);
+
+      // Operational exact trigger tag boost
+      if (detectedTriggerTag && memory.triggerTags?.includes(detectedTriggerTag)) {
+        score = Math.min(1.0, score + 0.35);
+      }
+
       if (score >= this.config.minSimilarityThreshold) {
         semanticMemoryMatches.push({
           id: memory.id,
@@ -365,6 +396,7 @@ export class HybridRetriever {
           workspace: chunk.workspace,
           project: chunk.project,
           module: chunk.module,
+          triggerTags: chunk.triggerTags,
           lastAccessedAt: chunk.lastAccessedAt,
           accessCount: chunk.accessCount,
           semanticScore: ranked.semanticScore,
@@ -389,6 +421,7 @@ export class HybridRetriever {
             workspace: memory.workspace,
             project: memory.project,
             module: memory.module,
+            triggerTags: memory.triggerTags,
             lastAccessedAt: memory.lastAccessedAt,
             accessCount: memory.accessCount,
             semanticScore: ranked.semanticScore,

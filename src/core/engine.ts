@@ -496,8 +496,84 @@ export class MemoryEngine {
     return id;
   }
 
-  public getAllRelations(): MemoryRelation[] {
-    return this.db.getAllRelations();
+  async ingestOperationalAsset(asset: {
+    type: "prompt" | "workflow" | "skill" | "rule";
+    title: string;
+    content: string;
+    triggerTags?: string[];
+    metadata?: Record<string, unknown>;
+  }): Promise<string> {
+    await this.ensureInitialized();
+    const id = `op_${asset.type}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const now = Date.now();
+
+    const embedding = await this.embeddingProvider.embedDocument({
+      text: asset.content,
+      title: asset.title,
+      context: `Operational Asset [${asset.type}]: ${asset.title} ${asset.triggerTags ? asset.triggerTags.join(" ") : ""}`,
+    });
+
+    const record: MemoryRecord = {
+      id,
+      memoryType: asset.type,
+      modality: "text",
+      modalType: "text",
+      title: asset.title,
+      content: asset.content,
+      triggerTags: asset.triggerTags || [],
+      metadata: asset.metadata,
+      embedding,
+      embeddingModel: this.embeddingProvider.modelName,
+      embeddingDimension: this.embeddingProvider.dimensions,
+      providerType: this.embeddingProvider.providerType,
+      workspace: (asset.metadata?.workspace as string) || this.config.workspace || "default",
+      project: (asset.metadata?.project as string) || this.config.projectName || "default",
+      module: (asset.metadata?.module as string) || "operational",
+      lastAccessedAt: now,
+      accessCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    this.db.upsertMemory(record);
+    return id;
+  }
+
+  async getOperationalAssetByTrigger(
+    triggerTag: string,
+    options?: { workspace?: string; project?: string }
+  ): Promise<RetrievedContext | null> {
+    await this.ensureInitialized();
+    const cleanTag = triggerTag.replace(/^[@#]/, "");
+    const results = this.db.getOperationalAssetsByTrigger(cleanTag, {
+      workspace: options?.workspace || this.config.workspace,
+      project: options?.project || this.config.projectName,
+    });
+    if (results.length === 0) return null;
+    const match = results[0];
+    this.db.recordAccess([], [match.id]);
+    return {
+      id: match.id,
+      sourceType: "operational",
+      memoryType: match.memoryType,
+      modality: match.modality,
+      content: match.content,
+      symbol: match.title,
+      symbolKind: match.memoryType,
+      workspace: match.workspace,
+      project: match.project,
+      module: match.module,
+      triggerTags: match.triggerTags,
+      lastAccessedAt: match.lastAccessedAt,
+      accessCount: (match.accessCount || 0) + 1,
+      finalScore: 1.0,
+      reason: `Exact trigger tag match: @${cleanTag}`,
+      metadata: match.metadata,
+    };
+  }
+
+  public getAllRelations(options?: { workspace?: string; project?: string }): MemoryRelation[] {
+    return this.db.getAllRelations(options);
   }
 
   public getStats(): IndexStats {

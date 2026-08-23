@@ -18,7 +18,11 @@ export type MemoryType =
   | "generation_history"
   | "user_interaction"
   | "symbol_index"
-  | "hive_distillation";
+  | "hive_distillation"
+  | "prompt"
+  | "workflow"
+  | "skill"
+  | "rule";
 
 export type RetrievalIntent =
   | "implementation"
@@ -27,6 +31,7 @@ export type RetrievalIntent =
   | "history"
   | "generation"
   | "exact_symbol"
+  | "operational"
   | "general";
 
 export interface FileRecord {
@@ -64,6 +69,7 @@ export interface ChunkRecord {
   workspace?: string;
   project?: string;
   module?: string;
+  triggerTags?: string[];
   lastAccessedAt?: number;
   accessCount?: number;
   createdAt: number;
@@ -87,6 +93,7 @@ export interface MemoryRecord {
   workspace?: string;
   project?: string;
   module?: string;
+  triggerTags?: string[];
   lastAccessedAt?: number;
   accessCount?: number;
   createdAt: number;
@@ -203,6 +210,7 @@ export interface RetrievedContext {
   workspace?: string;
   project?: string;
   module?: string;
+  triggerTags?: string[];
   lastAccessedAt?: number;
   accessCount?: number;
   semanticScore?: number;
@@ -228,6 +236,7 @@ export interface SearchOptions {
   filterFilepaths?: string[];
   filterMemoryTypes?: MemoryType[];
   filterModalities?: MemoryModality[];
+  triggerTag?: string;
   workspace?: string;
   project?: string;
   module?: string;

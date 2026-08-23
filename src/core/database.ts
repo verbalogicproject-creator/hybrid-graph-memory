@@ -107,6 +107,9 @@ export class MemoryDatabase {
       this.db.exec("ALTER TABLE chunks ADD COLUMN access_count INTEGER DEFAULT 0;");
     } catch (e) {}
     try {
+      this.db.exec("ALTER TABLE chunks ADD COLUMN trigger_tags TEXT;");
+    } catch (e) {}
+    try {
       this.db.exec("CREATE INDEX IF NOT EXISTS idx_chunks_modal ON chunks(modal_type);");
     } catch (e) {}
     try {
@@ -114,6 +117,9 @@ export class MemoryDatabase {
     } catch (e) {}
     try {
       this.db.exec("CREATE INDEX IF NOT EXISTS idx_chunks_access ON chunks(last_accessed_at);");
+    } catch (e) {}
+    try {
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_chunks_trigger ON chunks(trigger_tags);");
     } catch (e) {}
 
     // 3. Memories table (Experiential & Multimodal)
@@ -157,6 +163,9 @@ export class MemoryDatabase {
     } catch (e) {}
     try {
       this.db.exec("ALTER TABLE memories ADD COLUMN module TEXT DEFAULT 'root';");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE memories ADD COLUMN trigger_tags TEXT;");
     } catch (e) {}
     try {
       this.db.exec("ALTER TABLE memories ADD COLUMN last_accessed_at INTEGER DEFAULT 0;");
@@ -322,9 +331,9 @@ export class MemoryDatabase {
         modal_type, b64_source,
         symbol_name, symbol_kind, heading, start_line, end_line,
         embedding, embedding_model, embedding_dimension, provider_type,
-        commit_hash, workspace, project, module, last_accessed_at, access_count,
+        commit_hash, workspace, project, module, trigger_tags, last_accessed_at, access_count,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -349,6 +358,7 @@ export class MemoryDatabase {
       chunk.workspace || "default",
       chunk.project || "default",
       chunk.module || "root",
+      chunk.triggerTags ? JSON.stringify(chunk.triggerTags) : null,
       chunk.lastAccessedAt || 0,
       chunk.accessCount || 0,
       chunk.createdAt,
@@ -377,6 +387,7 @@ export class MemoryDatabase {
              embedding_dimension as embeddingDimension,
              provider_type as providerType,
              commit_hash as commitHash, workspace, project, module,
+             trigger_tags as triggerTags,
              last_accessed_at as lastAccessedAt, access_count as accessCount,
              created_at as createdAt, updated_at as updatedAt
       FROM chunks WHERE file_id = ? ORDER BY chunk_index ASC
@@ -391,6 +402,7 @@ export class MemoryDatabase {
       workspace: r.workspace || "default",
       project: r.project || "default",
       module: r.module || "root",
+      triggerTags: r.triggerTags ? JSON.parse(r.triggerTags) : [],
       lastAccessedAt: r.lastAccessedAt || 0,
       accessCount: r.accessCount || 0,
       embedding: r.embedding ? bufferToFloat32(r.embedding) : undefined,
@@ -410,6 +422,7 @@ export class MemoryDatabase {
              c.embedding_dimension as embeddingDimension,
              c.provider_type as providerType,
              c.commit_hash as commitHash, c.workspace, c.project, c.module,
+             c.trigger_tags as triggerTags,
              c.last_accessed_at as lastAccessedAt, c.access_count as accessCount,
              c.created_at as createdAt, c.updated_at as updatedAt,
              f.filepath, f.file_type as fileType
@@ -427,6 +440,7 @@ export class MemoryDatabase {
       workspace: r.workspace || "default",
       project: r.project || "default",
       module: r.module || "root",
+      triggerTags: r.triggerTags ? JSON.parse(r.triggerTags) : [],
       lastAccessedAt: r.lastAccessedAt || 0,
       accessCount: r.accessCount || 0,
       embedding: r.embedding ? bufferToFloat32(r.embedding) : undefined,
@@ -442,9 +456,9 @@ export class MemoryDatabase {
       INSERT OR REPLACE INTO memories (
         id, memory_type, modality, modal_type, b64_source, title, content, metadata,
         embedding, embedding_model, embedding_dimension, provider_type,
-        commit_hash, workspace, project, module, last_accessed_at, access_count,
+        commit_hash, workspace, project, module, trigger_tags, last_accessed_at, access_count,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -464,6 +478,7 @@ export class MemoryDatabase {
       memory.workspace || "default",
       memory.project || "default",
       memory.module || "root",
+      memory.triggerTags ? JSON.stringify(memory.triggerTags) : null,
       memory.lastAccessedAt || 0,
       memory.accessCount || 0,
       memory.createdAt,
@@ -489,6 +504,7 @@ export class MemoryDatabase {
              embedding_dimension as embeddingDimension,
              provider_type as providerType,
              commit_hash as commitHash, workspace, project, module,
+             trigger_tags as triggerTags,
              last_accessed_at as lastAccessedAt, access_count as accessCount,
              created_at as createdAt, updated_at as updatedAt
       FROM memories WHERE embedding IS NOT NULL
@@ -503,8 +519,50 @@ export class MemoryDatabase {
       workspace: r.workspace || "default",
       project: r.project || "default",
       module: r.module || "root",
+      triggerTags: r.triggerTags ? JSON.parse(r.triggerTags) : [],
       lastAccessedAt: r.lastAccessedAt || 0,
       accessCount: r.accessCount || 0,
+      metadata: r.metadata ? JSON.parse(r.metadata) : undefined,
+      embedding: r.embedding ? bufferToFloat32(r.embedding) : undefined,
+    }));
+  }
+
+  getOperationalAssetsByTrigger(
+    triggerTag: string,
+    options?: { workspace?: string; project?: string }
+  ): MemoryRecord[] {
+    let query = `
+      SELECT id, memory_type as memoryType, modality, modal_type as modalType,
+             b64_source as b64Source, title, content,
+             metadata, embedding, embedding_model as embeddingModel,
+             embedding_dimension as embeddingDimension,
+             provider_type as providerType,
+             commit_hash as commitHash, workspace, project, module,
+             trigger_tags as triggerTags,
+             last_accessed_at as lastAccessedAt, access_count as accessCount,
+             created_at as createdAt, updated_at as updatedAt
+      FROM memories
+      WHERE trigger_tags LIKE ?
+    `;
+    const params: any[] = [`%${triggerTag}%`];
+    if (options?.workspace) {
+      query += " AND workspace = ?";
+      params.push(options.workspace);
+    }
+    if (options?.project) {
+      query += " AND project = ?";
+      params.push(options.project);
+    }
+    const stmt = this.db.prepare(query);
+    const rows = stmt.all(...params) as any[];
+    return rows.map((r) => ({
+      ...r,
+      workspace: r.workspace || "default",
+      project: r.project || "default",
+      module: r.module || "root",
+      lastAccessedAt: r.lastAccessedAt || 0,
+      accessCount: r.accessCount || 0,
+      triggerTags: r.triggerTags ? JSON.parse(r.triggerTags) : [],
       metadata: r.metadata ? JSON.parse(r.metadata) : undefined,
       embedding: r.embedding ? bufferToFloat32(r.embedding) : undefined,
     }));
