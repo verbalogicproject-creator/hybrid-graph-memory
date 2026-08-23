@@ -1,1 +1,4 @@
-.memory/\nnode_modules/\ndist/\n.env*\n
+.memory/
+node_modules/
+dist/
+.env*

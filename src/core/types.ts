@@ -34,6 +34,101 @@ export type RetrievalIntent =
   | "operational"
   | "general";
 
+export type AdmissionStatus =
+  | "candidate"
+  | "admitted"
+  | "quarantined"
+  | "rejected";
+
+export interface WorkflowStep {
+  order: number;
+  action: string;
+  requiredTools?: string[];
+  description?: string;
+}
+
+export interface PromptSpec {
+  variables: string[];
+  outputShape: string;
+}
+
+export interface OperationalAssetSpec {
+  workflowSteps?: WorkflowStep[];
+  promptVariables?: string[];
+  promptOutputShape?: string;
+  [key: string]: unknown;
+}
+
+export interface OperationalAssetProvenance {
+  author: string;
+  sourceDoc?: string;
+  commitHash?: string;
+}
+
+export interface OperationalAssetStaleness {
+  isStale: boolean;
+  ageDays: number;
+  lastReviewedAt?: number;
+  stalenessReason?: string;
+}
+
+export interface OperationalAssetInput {
+  type: "prompt" | "workflow" | "skill" | "rule";
+  title: string;
+  content: string;
+  triggerTags: string[];
+  targetFramework: string;
+  author: string;
+  sourceDoc?: string;
+  commitHash?: string;
+  workflowSteps?: WorkflowStep[];
+  promptVariables?: string[];
+  promptOutputShape?: string;
+  spec?: OperationalAssetSpec;
+  admissionStatus?: AdmissionStatus;
+  metadata?: Record<string, unknown>;
+}
+
+export interface RetrievedOperationalAsset {
+  id: string;
+  title: string;
+  type: "prompt" | "workflow" | "skill" | "rule";
+  content: string;
+  triggerTags: string[];
+  admissionStatus: AdmissionStatus;
+  targetFramework: string;
+  provenance: OperationalAssetProvenance;
+  staleness: OperationalAssetStaleness;
+  spec?: OperationalAssetSpec;
+  reviewedBy?: string;
+  reviewedAt?: number;
+  quarantineReason?: string;
+  workspace?: string;
+  project?: string;
+  module?: string;
+  lastAccessedAt?: number;
+  accessCount?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export class OperationalAssetValidationError extends Error {
+  readonly code = "OPERATIONAL_ASSET_VALIDATION_ERROR";
+  readonly missingFields: string[];
+  readonly invalidFields: Record<string, string>;
+
+  constructor(
+    message: string,
+    missingFields: string[] = [],
+    invalidFields: Record<string, string> = {}
+  ) {
+    super(message);
+    this.name = "OperationalAssetValidationError";
+    this.missingFields = missingFields;
+    this.invalidFields = invalidFields;
+  }
+}
+
 export interface FileRecord {
   id: string;
   filepath: string;
@@ -70,6 +165,14 @@ export interface ChunkRecord {
   project?: string;
   module?: string;
   triggerTags?: string[];
+  admissionStatus?: AdmissionStatus;
+  targetFramework?: string;
+  author?: string;
+  sourceDoc?: string;
+  reviewedBy?: string;
+  reviewedAt?: number;
+  quarantineReason?: string;
+  assetSpec?: OperationalAssetSpec;
   lastAccessedAt?: number;
   accessCount?: number;
   createdAt: number;
@@ -94,6 +197,14 @@ export interface MemoryRecord {
   project?: string;
   module?: string;
   triggerTags?: string[];
+  admissionStatus?: AdmissionStatus;
+  targetFramework?: string;
+  author?: string;
+  sourceDoc?: string;
+  reviewedBy?: string;
+  reviewedAt?: number;
+  quarantineReason?: string;
+  assetSpec?: OperationalAssetSpec;
   lastAccessedAt?: number;
   accessCount?: number;
   createdAt: number;
@@ -211,6 +322,12 @@ export interface RetrievedContext {
   project?: string;
   module?: string;
   triggerTags?: string[];
+  admissionStatus?: AdmissionStatus;
+  targetFramework?: string;
+  author?: string;
+  sourceDoc?: string;
+  staleness?: OperationalAssetStaleness;
+  assetSpec?: OperationalAssetSpec;
   lastAccessedAt?: number;
   accessCount?: number;
   semanticScore?: number;
@@ -236,6 +353,8 @@ export interface SearchOptions {
   filterFilepaths?: string[];
   filterMemoryTypes?: MemoryType[];
   filterModalities?: MemoryModality[];
+  filterAdmissionStatuses?: AdmissionStatus[];
+  includeCandidates?: boolean;
   triggerTag?: string;
   workspace?: string;
   project?: string;

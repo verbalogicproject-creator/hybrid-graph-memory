@@ -12,6 +12,7 @@ import { HybridRetriever } from "../retrieval/hybrid_retriever";
 import { loadMemoryConfig, MemoryConfig } from "./config";
 import { MemoryDatabase } from "./database";
 import {
+  AdmissionStatus,
   ChunkRecord,
   EmbeddingProvider,
   FileRecord,
@@ -20,7 +21,12 @@ import {
   MemoryRecord,
   MemoryRelation,
   MemoryType,
+  OperationalAssetInput,
+  OperationalAssetSpec,
+  OperationalAssetStaleness,
+  OperationalAssetValidationError,
   RetrievedContext,
+  RetrievedOperationalAsset,
   SearchOptions,
 } from "./types";
 import { ProjectScanner } from "../ast/scanner";
@@ -496,21 +502,68 @@ export class MemoryEngine {
     return id;
   }
 
-  async ingestOperationalAsset(asset: {
-    type: "prompt" | "workflow" | "skill" | "rule";
-    title: string;
-    content: string;
-    triggerTags?: string[];
-    metadata?: Record<string, unknown>;
-  }): Promise<string> {
+  async ingestOperationalAsset(asset: OperationalAssetInput): Promise<string> {
     await this.ensureInitialized();
+    const missing: string[] = [];
+    const invalid: Record<string, string> = {};
+
+    if (!asset.type) missing.push("type");
+    if (!asset.title?.trim()) missing.push("title");
+    if (!asset.content?.trim()) missing.push("content");
+    if (!asset.targetFramework?.trim()) missing.push("targetFramework");
+    if (!asset.author?.trim()) missing.push("author");
+    if (!asset.triggerTags || !Array.isArray(asset.triggerTags) || asset.triggerTags.length === 0) {
+      missing.push("triggerTags");
+    }
+
+    if (asset.type === "workflow") {
+      const steps = asset.workflowSteps || asset.spec?.workflowSteps;
+      if (!steps || !Array.isArray(steps) || steps.length === 0) {
+        missing.push("workflowSteps");
+        invalid["workflowSteps"] = "Workflow asset must declare ordered steps with required tools/actions";
+      } else {
+        steps.forEach((st, idx) => {
+          if (typeof st.order !== "number" || !st.action?.trim()) {
+            invalid[`workflowSteps[${idx}]`] = "Each step must specify an order (number) and action (string)";
+          }
+        });
+      }
+    } else if (asset.type === "prompt") {
+      const vars = asset.promptVariables ?? asset.spec?.promptVariables;
+      const shape = asset.promptOutputShape ?? asset.spec?.promptOutputShape;
+      if (!Array.isArray(vars)) {
+        missing.push("promptVariables");
+        invalid["promptVariables"] = "Prompt asset must declare variables array (e.g. ['componentName', 'props'])";
+      }
+      if (!shape || typeof shape !== "string" || !shape.trim()) {
+        missing.push("promptOutputShape");
+        invalid["promptOutputShape"] = "Prompt asset must declare outputShape (e.g. 'typescript_tsx', 'json', 'markdown')";
+      }
+    }
+
+    if (missing.length > 0 || Object.keys(invalid).length > 0) {
+      throw new OperationalAssetValidationError(
+        `Operational asset validation failed for '${asset.title || "untitled"}': Missing required fields [${missing.join(", ")}]${Object.keys(invalid).length > 0 ? " — Details: " + JSON.stringify(invalid) : ""}`,
+        missing,
+        invalid
+      );
+    }
+
     const id = `op_${asset.type}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const now = Date.now();
+
+    // Prepare combined spec
+    const spec: OperationalAssetSpec = {
+      ...(asset.spec || {}),
+      workflowSteps: asset.workflowSteps || asset.spec?.workflowSteps,
+      promptVariables: asset.promptVariables || asset.spec?.promptVariables,
+      promptOutputShape: asset.promptOutputShape || asset.spec?.promptOutputShape,
+    };
 
     const embedding = await this.embeddingProvider.embedDocument({
       text: asset.content,
       title: asset.title,
-      context: `Operational Asset [${asset.type}]: ${asset.title} ${asset.triggerTags ? asset.triggerTags.join(" ") : ""}`,
+      context: `Operational Asset [${asset.type}]: ${asset.title} target=${asset.targetFramework} ${asset.triggerTags.join(" ")}`,
     });
 
     const record: MemoryRecord = {
@@ -520,7 +573,13 @@ export class MemoryEngine {
       modalType: "text",
       title: asset.title,
       content: asset.content,
-      triggerTags: asset.triggerTags || [],
+      triggerTags: asset.triggerTags,
+      admissionStatus: asset.admissionStatus || "candidate", // E3: enters as candidate by default
+      targetFramework: asset.targetFramework,
+      author: asset.author,
+      sourceDoc: asset.sourceDoc,
+      commitHash: asset.commitHash,
+      assetSpec: spec,
       metadata: asset.metadata,
       embedding,
       embeddingModel: this.embeddingProvider.modelName,
@@ -539,37 +598,126 @@ export class MemoryEngine {
     return id;
   }
 
+  public async admitOperationalAsset(
+    assetId: string,
+    reviewedBy: string,
+    notes?: string
+  ): Promise<boolean> {
+    await this.ensureInitialized();
+    return this.db.updateOperationalAssetAdmission(assetId, "admitted", reviewedBy, notes);
+  }
+
+  public async quarantineOperationalAsset(
+    assetId: string,
+    reason: string,
+    reviewedBy: string
+  ): Promise<boolean> {
+    await this.ensureInitialized();
+    return this.db.updateOperationalAssetAdmission(assetId, "quarantined", reviewedBy, reason);
+  }
+
+  public async rejectOperationalAsset(
+    assetId: string,
+    reason: string,
+    reviewedBy: string
+  ): Promise<boolean> {
+    await this.ensureInitialized();
+    return this.db.updateOperationalAssetAdmission(assetId, "rejected", reviewedBy, reason);
+  }
+
+  public async listOperationalAssets(filter?: {
+    status?: AdmissionStatus;
+    workspace?: string;
+    project?: string;
+  }): Promise<RetrievedOperationalAsset[]> {
+    await this.ensureInitialized();
+    const rows = this.db.listOperationalAssets({
+      status: filter?.status,
+      workspace: filter?.workspace || this.config.workspace,
+      project: filter?.project || this.config.projectName,
+    });
+    return rows.map((r) => this.mapRecordToOperationalAsset(r));
+  }
+
+  public computeStaleness(
+    record: MemoryRecord,
+    maxAgeDays = 90
+  ): OperationalAssetStaleness {
+    const ageDays = Math.max(
+      0,
+      Math.floor((Date.now() - record.createdAt) / (1000 * 60 * 60 * 24))
+    );
+    let isStale = false;
+    let stalenessReason: string | undefined;
+
+    const lastCheck = record.reviewedAt || record.createdAt;
+    const daysSinceReview = Math.floor((Date.now() - lastCheck) / (1000 * 60 * 60 * 24));
+    if (daysSinceReview > maxAgeDays) {
+      isStale = true;
+      stalenessReason = `Asset is ${ageDays} days old and unreviewed for ${daysSinceReview} days (exceeds review window of ${maxAgeDays} days)`;
+    }
+
+    return {
+      isStale,
+      ageDays,
+      lastReviewedAt: record.reviewedAt,
+      stalenessReason,
+    };
+  }
+
+  private mapRecordToOperationalAsset(match: MemoryRecord): RetrievedOperationalAsset {
+    const staleness = this.computeStaleness(match);
+    return {
+      id: match.id,
+      title: match.title,
+      type: match.memoryType as "prompt" | "workflow" | "skill" | "rule",
+      content: match.content,
+      triggerTags: match.triggerTags || [],
+      admissionStatus: match.admissionStatus || "admitted",
+      targetFramework: match.targetFramework || "unspecified",
+      provenance: {
+        author: match.author || "unknown",
+        sourceDoc: match.sourceDoc,
+        commitHash: match.commitHash,
+      },
+      staleness,
+      spec: match.assetSpec,
+      reviewedBy: match.reviewedBy,
+      reviewedAt: match.reviewedAt,
+      quarantineReason: match.quarantineReason,
+      workspace: match.workspace,
+      project: match.project,
+      module: match.module,
+      lastAccessedAt: match.lastAccessedAt,
+      accessCount: match.accessCount,
+      createdAt: match.createdAt,
+      updatedAt: match.updatedAt,
+    };
+  }
+
   async getOperationalAssetByTrigger(
     triggerTag: string,
-    options?: { workspace?: string; project?: string }
-  ): Promise<RetrievedContext | null> {
+    options?: {
+      workspace?: string;
+      project?: string;
+      filterAdmissionStatuses?: AdmissionStatus[];
+      includeCandidates?: boolean;
+    }
+  ): Promise<RetrievedOperationalAsset | null> {
     await this.ensureInitialized();
     const cleanTag = triggerTag.replace(/^[@#]/, "");
     const results = this.db.getOperationalAssetsByTrigger(cleanTag, {
       workspace: options?.workspace || this.config.workspace,
       project: options?.project || this.config.projectName,
+      filterAdmissionStatuses: options?.filterAdmissionStatuses,
+      includeCandidates: options?.includeCandidates,
     });
     if (results.length === 0) return null;
     const match = results[0];
     this.db.recordAccess([], [match.id]);
-    return {
-      id: match.id,
-      sourceType: "operational",
-      memoryType: match.memoryType,
-      modality: match.modality,
-      content: match.content,
-      symbol: match.title,
-      symbolKind: match.memoryType,
-      workspace: match.workspace,
-      project: match.project,
-      module: match.module,
-      triggerTags: match.triggerTags,
-      lastAccessedAt: match.lastAccessedAt,
-      accessCount: (match.accessCount || 0) + 1,
-      finalScore: 1.0,
-      reason: `Exact trigger tag match: @${cleanTag}`,
-      metadata: match.metadata,
-    };
+    match.accessCount = (match.accessCount || 0) + 1;
+    match.lastAccessedAt = Date.now();
+    return this.mapRecordToOperationalAsset(match);
   }
 
   public getAllRelations(options?: { workspace?: string; project?: string }): MemoryRelation[] {

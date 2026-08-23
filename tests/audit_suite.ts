@@ -4,7 +4,10 @@ import { LocalLlamaEmbeddingProvider } from "../src/vector/providers/local_llama
 import { LocalBgeReranker } from "../src/retrieval/reranker";
 import { LocalLlamaGenerator } from "../src/retrieval/generator";
 import { cosineSimilarity } from "../src/vector/math";
-import { EmbeddingSpaceMismatchError } from "../src/core/types";
+import {
+  EmbeddingSpaceMismatchError,
+  OperationalAssetValidationError,
+} from "../src/core/types";
 
 async function runStandaloneAudit() {
   console.log(`
@@ -474,6 +477,11 @@ export class AuthenticationService extends BaseService implements IAuthValidator
     title: "Conventional Commit Prompt",
     content: "Generate structured conventional commits following feat(scope): subject format.",
     triggerTags: ["git_commit", "commit_prompt", "@commit"],
+    targetFramework: "git-cli@2.x",
+    author: "dev_team",
+    promptVariables: ["type", "scope", "message"],
+    promptOutputShape: "conventional_commit_string",
+    admissionStatus: "admitted",
   });
 
   // Ingest Workflow Asset
@@ -482,6 +490,14 @@ export class AuthenticationService extends BaseService implements IAuthValidator
     title: "Production Deployment Workflow",
     content: "Step 1: Run audit suite. Step 2: Bump semver version. Step 3: Publish to registry.",
     triggerTags: ["deploy_flow", "release_pipeline", "@deploy"],
+    targetFramework: "nodejs@22.x",
+    author: "devops_team",
+    workflowSteps: [
+      { order: 1, action: "npm test", requiredTools: ["run_command"] },
+      { order: 2, action: "npm version patch", requiredTools: ["run_command"] },
+      { order: 3, action: "npm publish", requiredTools: ["run_command"] },
+    ],
+    admissionStatus: "admitted",
   });
 
   // Test 1: Exact trigger tag lookup
@@ -489,14 +505,14 @@ export class AuthenticationService extends BaseService implements IAuthValidator
   const commitAsset = await waveCEngine.getOperationalAssetByTrigger("@commit");
   const deployAsset = await waveCEngine.getOperationalAssetByTrigger("deploy_flow");
 
-  if (commitAsset && commitAsset.id === promptId && commitAsset.memoryType === "prompt") {
-    console.log(`  ✅ PASS (Wave C Item 1): Prompt asset retrieved by exact trigger '@commit' -> "${commitAsset.symbol}"`);
+  if (commitAsset && commitAsset.id === promptId && commitAsset.type === "prompt") {
+    console.log(`  ✅ PASS (Wave C Item 1): Prompt asset retrieved by exact trigger '@commit' -> "${commitAsset.title}"`);
   } else {
     throw new Error("FAIL (Wave C Item 1): Failed to retrieve prompt asset by trigger tag!");
   }
 
-  if (deployAsset && deployAsset.id === workflowId && deployAsset.memoryType === "workflow") {
-    console.log(`  ✅ PASS (Wave C Item 1): Workflow asset retrieved by exact trigger 'deploy_flow' -> "${deployAsset.symbol}"`);
+  if (deployAsset && deployAsset.id === workflowId && deployAsset.type === "workflow") {
+    console.log(`  ✅ PASS (Wave C Item 1): Workflow asset retrieved by exact trigger 'deploy_flow' -> "${deployAsset.title}"`);
   } else {
     throw new Error("FAIL (Wave C Item 1): Failed to retrieve workflow asset by trigger tag!");
   }
@@ -515,6 +531,215 @@ export class AuthenticationService extends BaseService implements IAuthValidator
   } else {
     throw new Error("FAIL (Wave C Item 2): filterMemoryTypes failed to restrict results!");
   }
+
+  // =========================================================================
+  // PHASE 2 WAVE E: OPERATIONAL-ASSET INTEGRITY VERIFICATION (E1, E2, E3, E4, E5)
+  // =========================================================================
+  console.log(`
+╔═══════════════════════════════════════════════════════════════════╗
+║     🛡️ PHASE 2 WAVE E: OPERATIONAL-ASSET INTEGRITY VERIFICATION   ║
+║   Schema Validation • Targeting • Admission Gate • Staleness      ║
+╚═══════════════════════════════════════════════════════════════════╝
+`);
+
+  const waveEDbPath = ".memory/test_wave_e_integrity.db";
+  if (fs.existsSync(waveEDbPath)) fs.unlinkSync(waveEDbPath);
+
+  const waveEEngine = new MemoryEngine({
+    dbPath: waveEDbPath,
+    workspace: "codio_workspace",
+    projectName: "codio_app_builder",
+  });
+  await waveEEngine.init();
+
+  // E1: Schema Validation at Ingest (Fail-Fast)
+  console.log("  [Wave E1] Testing fail-fast schema validation on malformed assets...");
+
+  // E1.1: Workflow missing steps must throw
+  let wfErrorCaught = false;
+  try {
+    await waveEEngine.ingestOperationalAsset({
+      type: "workflow",
+      title: "Broken Scaffold Workflow",
+      content: "Improvised scaffold with no declared steps",
+      triggerTags: ["@scaffold_broken"],
+      targetFramework: "next@15.x",
+      author: "attacker_or_buggy_agent",
+    } as any);
+  } catch (err: any) {
+    if (
+      err instanceof OperationalAssetValidationError &&
+      err.missingFields.includes("workflowSteps")
+    ) {
+      wfErrorCaught = true;
+      console.log(`  ✅ PASS (Wave E1): Malformed workflow rejected cleanly -> "${err.message}"`);
+    }
+  }
+  if (!wfErrorCaught) throw new Error("FAIL (Wave E1): Malformed workflow was NOT rejected!");
+
+  // E1.2: Prompt missing outputShape/variables must throw
+  let promptErrorCaught = false;
+  try {
+    await waveEEngine.ingestOperationalAsset({
+      type: "prompt",
+      title: "Broken React Prompt",
+      content: "Generate component",
+      triggerTags: ["@react_broken"],
+      targetFramework: "react@19.x",
+      author: "dev",
+    } as any);
+  } catch (err: any) {
+    if (
+      err instanceof OperationalAssetValidationError &&
+      (err.missingFields.includes("promptVariables") || err.missingFields.includes("promptOutputShape"))
+    ) {
+      promptErrorCaught = true;
+      console.log(`  ✅ PASS (Wave E1): Malformed prompt rejected cleanly -> "${err.message}"`);
+    }
+  }
+  if (!promptErrorCaught) throw new Error("FAIL (Wave E1): Malformed prompt was NOT rejected!");
+
+  // E2: Declared Targeting and Provenance
+  console.log("  [Wave E2] Testing declared targeting and provenance requirements...");
+  let targetErrorCaught = false;
+  try {
+    await waveEEngine.ingestOperationalAsset({
+      type: "workflow",
+      title: "Untargeted Workflow",
+      content: "Step 1: Do something",
+      triggerTags: ["@untargeted"],
+      author: "dev",
+      workflowSteps: [{ order: 1, action: "do_something" }],
+    } as any);
+  } catch (err: any) {
+    if (
+      err instanceof OperationalAssetValidationError &&
+      err.missingFields.includes("targetFramework")
+    ) {
+      targetErrorCaught = true;
+      console.log(`  ✅ PASS (Wave E2): Untargeted asset rejected cleanly -> "${err.message}"`);
+    }
+  }
+  if (!targetErrorCaught) throw new Error("FAIL (Wave E2): Untargeted asset was NOT rejected!");
+
+  // E3: Candidate Admission Gate & Quarantine Discipline
+  console.log("  [Wave E3] Testing Candidate Admission Gate & Quarantine Discipline...");
+  // Ingest valid candidate scaffold
+  const scaffoldId = await waveEEngine.ingestOperationalAsset({
+    type: "workflow",
+    title: "Next.js 15 App Router Scaffold",
+    content: "Step 1: Init layout.tsx. Step 2: Wire page.tsx. Step 3: Configure tailwind.config.ts.",
+    triggerTags: ["@scaffold:nextjs", "nextjs_scaffold"],
+    targetFramework: "next@15.x",
+    author: "architect",
+    sourceDoc: "docs/scaffolds/nextjs15.md",
+    workflowSteps: [
+      { order: 1, action: "create_layout", requiredTools: ["write_to_file"] },
+      { order: 2, action: "create_page", requiredTools: ["write_to_file"] },
+      { order: 3, action: "configure_tailwind", requiredTools: ["write_to_file"] },
+    ],
+  });
+
+  // E3.1: Verify Candidate is NOT returned by default query
+  const unadmittedQuery = await waveEEngine.getOperationalAssetByTrigger("@scaffold:nextjs");
+  if (unadmittedQuery === null) {
+    console.log("  ✅ PASS (Wave E3): Unadmitted candidate asset is gated and returned NULL by default!");
+  } else {
+    throw new Error("FAIL (Wave E3): Candidate asset leaked before admission!");
+  }
+
+  // E3.2: Verify Candidate IS returned when includeCandidates: true
+  const candidateQuery = await waveEEngine.getOperationalAssetByTrigger("@scaffold:nextjs", {
+    includeCandidates: true,
+  });
+  if (candidateQuery && candidateQuery.admissionStatus === "candidate") {
+    console.log(`  ✅ PASS (Wave E3): Candidate retrieved with explicit includeCandidates flag -> status="${candidateQuery.admissionStatus}"`);
+  } else {
+    throw new Error("FAIL (Wave E3): Failed to inspect candidate asset!");
+  }
+
+  // E3.3: Promote Candidate to Admitted via Admission Gate
+  const admitSuccess = await waveEEngine.admitOperationalAsset(
+    scaffoldId,
+    "lead_evaluator",
+    "Verified against Next.js 15.1.0 specification"
+  );
+  if (!admitSuccess) throw new Error("FAIL (Wave E3): Failed to admit asset!");
+
+  const admittedQuery = await waveEEngine.getOperationalAssetByTrigger("@scaffold:nextjs");
+  if (
+    admittedQuery &&
+    admittedQuery.admissionStatus === "admitted" &&
+    admittedQuery.reviewedBy === "lead_evaluator"
+  ) {
+    console.log(`  ✅ PASS (Wave E3): Asset successfully admitted and retrievable -> status="${admittedQuery.admissionStatus}", reviewedBy="${admittedQuery.reviewedBy}"`);
+  } else {
+    throw new Error("FAIL (Wave E3): Admitted asset retrieval failed!");
+  }
+
+  // E3.4: Quarantine Asset with Disposition
+  const quarantineSuccess = await waveEEngine.quarantineOperationalAsset(
+    scaffoldId,
+    "Next.js 15.2 deprecation detected in layout wiring",
+    "lead_evaluator"
+  );
+  if (!quarantineSuccess) throw new Error("FAIL (Wave E3): Failed to quarantine asset!");
+
+  const quarantinedQuery = await waveEEngine.getOperationalAssetByTrigger("@scaffold:nextjs");
+  if (quarantinedQuery === null) {
+    console.log("  ✅ PASS (Wave E3): Quarantined asset is immediately suppressed from retrieval!");
+  } else {
+    throw new Error("FAIL (Wave E3): Quarantined asset was returned by query!");
+  }
+
+  // Verify quarantined asset preserved with disposition reason (not deleted)
+  const quarantinedList = await waveEEngine.listOperationalAssets({ status: "quarantined" });
+  if (
+    quarantinedList.length === 1 &&
+    quarantinedList[0].quarantineReason?.includes("Next.js 15.2 deprecation")
+  ) {
+    console.log(`  ✅ PASS (Wave E3): Quarantined asset preserved in SQLite with disposition reason -> "${quarantinedList[0].quarantineReason}"`);
+  } else {
+    throw new Error("FAIL (Wave E3): Quarantined asset disposition was not preserved!");
+  }
+
+  // Readmit asset for subsequent trust and staleness tests
+  await waveEEngine.admitOperationalAsset(scaffoldId, "lead_evaluator", "Re-verified and patched");
+
+  // E4: Staleness Detection (Report, Do Not Act)
+  console.log("  [Wave E4] Testing Staleness Detection (Report, Do Not Act)...");
+  const staleSimulatedRecord = {
+    id: "op_stale_1",
+    createdAt: Date.now() - 120 * 24 * 60 * 60 * 1000, // 120 days ago
+    reviewedAt: Date.now() - 100 * 24 * 60 * 60 * 1000, // 100 days ago
+  } as any;
+  const stalenessSignal = waveEEngine.computeStaleness(staleSimulatedRecord, 90);
+  if (stalenessSignal.isStale && stalenessSignal.ageDays >= 120 && stalenessSignal.stalenessReason) {
+    console.log(`  ✅ PASS (Wave E4): Staleness signal accurately computed -> isStale=${stalenessSignal.isStale}, age=${stalenessSignal.ageDays}d, reason="${stalenessSignal.stalenessReason}"`);
+  } else {
+    throw new Error("FAIL (Wave E4): Staleness signal calculation failed!");
+  }
+
+  // E5: Retrieval Reports Asset Trust & Provenance
+  console.log("  [Wave E5] Testing Trust, Targeting & Provenance on Retrieval...");
+  const trustRetrieved = await waveEEngine.getOperationalAssetByTrigger("@scaffold:nextjs");
+  if (
+    trustRetrieved &&
+    trustRetrieved.targetFramework === "next@15.x" &&
+    trustRetrieved.provenance.author === "architect" &&
+    trustRetrieved.provenance.sourceDoc === "docs/scaffolds/nextjs15.md" &&
+    trustRetrieved.spec?.workflowSteps?.length === 3 &&
+    trustRetrieved.staleness.isStale === false
+  ) {
+    console.log(`  ✅ PASS (Wave E5): Retrieved asset returns full trust metadata -> target="${trustRetrieved.targetFramework}", author="${trustRetrieved.provenance.author}", steps=${trustRetrieved.spec.workflowSteps.length}`);
+  } else {
+    throw new Error("FAIL (Wave E5): Trust metadata retrieval failed!");
+  }
+
+  waveEEngine.close();
+  try {
+    if (fs.existsSync(waveEDbPath)) fs.unlinkSync(waveEDbPath);
+  } catch (e) {}
 
   // =========================================================================
   // COMPREHENSIVE EDGE-CASES & GAPS-HANDLING TEST SUITE
@@ -549,6 +774,10 @@ export class AuthenticationService extends BaseService implements IAuthValidator
     title: "Foreign Workspace Deploy",
     content: "Step 1: Staging deploy only.",
     triggerTags: ["deploy_flow"],
+    targetFramework: "docker@24.x",
+    author: "dev_ops",
+    workflowSteps: [{ order: 1, action: "deploy_staging" }],
+    admissionStatus: "admitted",
     metadata: {
       workspace: "other_corp",
       project: "other_project",
@@ -582,6 +811,9 @@ deploy:
     title: "Unicode Skill 🚀",
     content: complexMarkdown,
     triggerTags: ["unicode_skill", "🚀emoji"],
+    targetFramework: "markdown@1.x",
+    author: "polyglot_tester",
+    admissionStatus: "admitted",
   });
 
   const unicodeRetrieved = await waveCEngine.getOperationalAssetByTrigger("unicode_skill");
@@ -603,6 +835,11 @@ deploy:
   } else {
     throw new Error("FAIL (Edge Case 5): Access count monotonicity failed!");
   }
+
+  waveCEngine.close();
+  try {
+    if (fs.existsSync(waveCDbPath)) fs.unlinkSync(waveCDbPath);
+  } catch (e) {}
 
   // Edge Case 7: Legacy Database Schema Auto-Migration Resilience
   console.log("  [Edge Case 7] Testing Legacy Database Schema Auto-Migration Resilience...");
@@ -685,9 +922,13 @@ deploy:
 
   // Edge Case 9: MCP Server Protocol Handlers Direct Verification
   console.log("  [Edge Case 9] Testing MCP Server JSON-RPC Protocol & Tools...");
+  const mcpDbPath = ".memory/test_mcp_server.db";
+  if (fs.existsSync(mcpDbPath)) fs.unlinkSync(mcpDbPath);
+  const mcpEngine = new MemoryEngine({ dbPath: mcpDbPath });
+  await mcpEngine.init();
+
   const { MemoryMcpServer } = require("../src/mcp/server");
-  const mcpServer = new MemoryMcpServer();
-  await (mcpServer as any).engine.init();
+  const mcpServer = new MemoryMcpServer(mcpEngine);
 
   // Test tools/list
   const listResp = await (mcpServer as any).handleRequest({
@@ -702,10 +943,13 @@ deploy:
     "agy_graph_inspect",
     "agy_load_operational_asset",
     "agy_ingest_operational_asset",
+    "agy_admit_operational_asset",
+    "agy_quarantine_operational_asset",
+    "agy_list_operational_assets",
   ];
   const allToolsPresent = expectedTools.every((t) => toolNames.includes(t));
   if (allToolsPresent) {
-    console.log(`  ✅ PASS (Edge Case 9): MCP Server exposes all 5 tools: [${toolNames.join(", ")}]`);
+    console.log(`  ✅ PASS (Edge Case 9): MCP Server exposes all 8 tools: [${toolNames.join(", ")}]`);
   } else {
     throw new Error(`FAIL (Edge Case 9): Missing expected MCP tools! Found: ${toolNames}`);
   }
@@ -722,17 +966,20 @@ deploy:
         title: "Coding Style Rule",
         content: "Always write pure TypeScript without any native C++ dependencies.",
         triggerTags: ["coding_rule", "@rule:style"],
+        targetFramework: "typescript@5.x",
+        author: "lead_architect",
       },
     },
   });
-  if (ingestCallResp.result?.assetId) {
-    console.log(`  ✅ PASS (Edge Case 9): MCP 'agy_ingest_operational_asset' executed -> ${ingestCallResp.result.assetId}`);
+  const mcpAssetId = ingestCallResp.result?.assetId;
+  if (mcpAssetId && ingestCallResp.result?.status === "candidate") {
+    console.log(`  ✅ PASS (Edge Case 9): MCP 'agy_ingest_operational_asset' executed -> ${mcpAssetId} (status: candidate)`);
   } else {
     throw new Error("FAIL (Edge Case 9): MCP ingest tool call failed!");
   }
 
-  // Test tools/call agy_load_operational_asset
-  const loadCallResp = await (mcpServer as any).handleRequest({
+  // Test tools/call agy_load_operational_asset before admission -> must be gated
+  const loadBeforeAdmit = await (mcpServer as any).handleRequest({
     jsonrpc: "2.0",
     id: 3,
     method: "tools/call",
@@ -743,10 +990,48 @@ deploy:
       },
     },
   });
-  if (loadCallResp.result?.found) {
-    console.log("  ✅ PASS (Edge Case 9): MCP 'agy_load_operational_asset' retrieved rule by exact trigger tag.");
+  if (!loadBeforeAdmit.result?.found) {
+    console.log("  ✅ PASS (Edge Case 9): MCP 'agy_load_operational_asset' gated candidate asset from retrieval.");
   } else {
-    throw new Error("FAIL (Edge Case 9): MCP load tool call failed to find ingested asset!");
+    throw new Error("FAIL (Edge Case 9): Unadmitted candidate leaked through MCP load tool!");
+  }
+
+  // Test tools/call agy_admit_operational_asset
+  const admitCallResp = await (mcpServer as any).handleRequest({
+    jsonrpc: "2.0",
+    id: 4,
+    method: "tools/call",
+    params: {
+      name: "agy_admit_operational_asset",
+      arguments: {
+        assetId: mcpAssetId,
+        reviewedBy: "qa_auditor",
+        notes: "Approved for production codebase",
+      },
+    },
+  });
+  if (admitCallResp.result?.success) {
+    console.log("  ✅ PASS (Edge Case 9): MCP 'agy_admit_operational_asset' admitted candidate asset.");
+  } else {
+    throw new Error("FAIL (Edge Case 9): MCP admit tool call failed!");
+  }
+
+  // Test tools/call agy_load_operational_asset after admission
+  const loadAfterAdmit = await (mcpServer as any).handleRequest({
+    jsonrpc: "2.0",
+    id: 5,
+    method: "tools/call",
+    params: {
+      name: "agy_load_operational_asset",
+      arguments: {
+        triggerTag: "@rule:style",
+      },
+    },
+  });
+  if (loadAfterAdmit.result?.found && loadAfterAdmit.result?.asset?.admissionStatus === "admitted") {
+    console.log("  ✅ PASS (Edge Case 9): MCP 'agy_load_operational_asset' retrieved admitted asset with trust metadata.");
+  } else {
+    throw new Error("FAIL (Edge Case 9): MCP load tool call failed to find admitted asset!");
   }
 
   // Test invalid method
@@ -762,6 +1047,9 @@ deploy:
   }
   (mcpServer as any).rl.close();
   (mcpServer as any).engine.close();
+  try {
+    if (fs.existsSync(mcpDbPath)) fs.unlinkSync(mcpDbPath);
+  } catch (e) {}
 
   // Edge Case 10: Multimodal Image Generation Ingestion & Provenance
   console.log("  [Edge Case 10] Testing Multimodal Image Ingestion & Provenance...");

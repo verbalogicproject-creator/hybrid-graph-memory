@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
+  AdmissionStatus,
   ChunkRecord,
   FileRecord,
   IndexStats,
@@ -132,6 +133,30 @@ export class MemoryDatabase {
       this.db.exec("ALTER TABLE chunks ADD COLUMN trigger_tags TEXT;");
     } catch (e) {}
     try {
+      this.db.exec("ALTER TABLE chunks ADD COLUMN admission_status TEXT DEFAULT 'admitted';");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE chunks ADD COLUMN target_framework TEXT;");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE chunks ADD COLUMN author TEXT;");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE chunks ADD COLUMN source_doc TEXT;");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE chunks ADD COLUMN reviewed_by TEXT;");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE chunks ADD COLUMN reviewed_at INTEGER;");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE chunks ADD COLUMN quarantine_reason TEXT;");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE chunks ADD COLUMN asset_spec TEXT;");
+    } catch (e) {}
+    try {
       this.db.exec("CREATE INDEX IF NOT EXISTS idx_chunks_modal ON chunks(modal_type);");
     } catch (e) {}
     try {
@@ -142,6 +167,12 @@ export class MemoryDatabase {
     } catch (e) {}
     try {
       this.db.exec("CREATE INDEX IF NOT EXISTS idx_chunks_trigger ON chunks(trigger_tags);");
+    } catch (e) {}
+    try {
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_chunks_admission ON chunks(admission_status);");
+    } catch (e) {}
+    try {
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_chunks_target_fw ON chunks(target_framework);");
     } catch (e) {}
 
     // 3. Memories table (Experiential & Multimodal)
@@ -196,6 +227,30 @@ export class MemoryDatabase {
       this.db.exec("ALTER TABLE memories ADD COLUMN access_count INTEGER DEFAULT 0;");
     } catch (e) {}
     try {
+      this.db.exec("ALTER TABLE memories ADD COLUMN admission_status TEXT DEFAULT 'admitted';");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE memories ADD COLUMN target_framework TEXT;");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE memories ADD COLUMN author TEXT;");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE memories ADD COLUMN source_doc TEXT;");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE memories ADD COLUMN reviewed_by TEXT;");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE memories ADD COLUMN reviewed_at INTEGER;");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE memories ADD COLUMN quarantine_reason TEXT;");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE memories ADD COLUMN asset_spec TEXT;");
+    } catch (e) {}
+    try {
       this.db.exec("CREATE INDEX IF NOT EXISTS idx_memories_modal ON memories(modal_type);");
     } catch (e) {}
     try {
@@ -203,6 +258,12 @@ export class MemoryDatabase {
     } catch (e) {}
     try {
       this.db.exec("CREATE INDEX IF NOT EXISTS idx_memories_access ON memories(last_accessed_at);");
+    } catch (e) {}
+    try {
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_memories_admission ON memories(admission_status);");
+    } catch (e) {}
+    try {
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_memories_target_fw ON memories(target_framework);");
     } catch (e) {}
 
     // 4. Metadata / Manifest table
@@ -353,9 +414,12 @@ export class MemoryDatabase {
         modal_type, b64_source,
         symbol_name, symbol_kind, heading, start_line, end_line,
         embedding, embedding_model, embedding_dimension, provider_type,
-        commit_hash, workspace, project, module, trigger_tags, last_accessed_at, access_count,
+        commit_hash, workspace, project, module, trigger_tags,
+        admission_status, target_framework, author, source_doc,
+        reviewed_by, reviewed_at, quarantine_reason, asset_spec,
+        last_accessed_at, access_count,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -381,6 +445,14 @@ export class MemoryDatabase {
       chunk.project || "default",
       chunk.module || "root",
       chunk.triggerTags ? JSON.stringify(chunk.triggerTags) : null,
+      chunk.admissionStatus || "admitted",
+      chunk.targetFramework || null,
+      chunk.author || null,
+      chunk.sourceDoc || null,
+      chunk.reviewedBy || null,
+      chunk.reviewedAt || null,
+      chunk.quarantineReason || null,
+      chunk.assetSpec ? JSON.stringify(chunk.assetSpec) : null,
       chunk.lastAccessedAt || 0,
       chunk.accessCount || 0,
       chunk.createdAt,
@@ -410,6 +482,12 @@ export class MemoryDatabase {
              provider_type as providerType,
              commit_hash as commitHash, workspace, project, module,
              trigger_tags as triggerTags,
+             admission_status as admissionStatus,
+             target_framework as targetFramework,
+             author, source_doc as sourceDoc,
+             reviewed_by as reviewedBy, reviewed_at as reviewedAt,
+             quarantine_reason as quarantineReason,
+             asset_spec as assetSpec,
              last_accessed_at as lastAccessedAt, access_count as accessCount,
              created_at as createdAt, updated_at as updatedAt
       FROM chunks WHERE file_id = ? ORDER BY chunk_index ASC
@@ -424,7 +502,9 @@ export class MemoryDatabase {
       workspace: r.workspace || "default",
       project: r.project || "default",
       module: r.module || "root",
+      admissionStatus: r.admissionStatus || "admitted",
       triggerTags: r.triggerTags ? JSON.parse(r.triggerTags) : [],
+      assetSpec: r.assetSpec ? JSON.parse(r.assetSpec) : undefined,
       lastAccessedAt: r.lastAccessedAt || 0,
       accessCount: r.accessCount || 0,
       embedding: r.embedding ? bufferToFloat32(r.embedding) : undefined,
@@ -445,6 +525,12 @@ export class MemoryDatabase {
              c.provider_type as providerType,
              c.commit_hash as commitHash, c.workspace, c.project, c.module,
              c.trigger_tags as triggerTags,
+             c.admission_status as admissionStatus,
+             c.target_framework as targetFramework,
+             c.author, c.source_doc as sourceDoc,
+             c.reviewed_by as reviewedBy, c.reviewed_at as reviewedAt,
+             c.quarantine_reason as quarantineReason,
+             c.asset_spec as assetSpec,
              c.last_accessed_at as lastAccessedAt, c.access_count as accessCount,
              c.created_at as createdAt, c.updated_at as updatedAt,
              f.filepath, f.file_type as fileType
@@ -462,7 +548,9 @@ export class MemoryDatabase {
       workspace: r.workspace || "default",
       project: r.project || "default",
       module: r.module || "root",
+      admissionStatus: r.admissionStatus || "admitted",
       triggerTags: r.triggerTags ? JSON.parse(r.triggerTags) : [],
+      assetSpec: r.assetSpec ? JSON.parse(r.assetSpec) : undefined,
       lastAccessedAt: r.lastAccessedAt || 0,
       accessCount: r.accessCount || 0,
       embedding: r.embedding ? bufferToFloat32(r.embedding) : undefined,
@@ -478,9 +566,12 @@ export class MemoryDatabase {
       INSERT OR REPLACE INTO memories (
         id, memory_type, modality, modal_type, b64_source, title, content, metadata,
         embedding, embedding_model, embedding_dimension, provider_type,
-        commit_hash, workspace, project, module, trigger_tags, last_accessed_at, access_count,
+        commit_hash, workspace, project, module, trigger_tags,
+        admission_status, target_framework, author, source_doc,
+        reviewed_by, reviewed_at, quarantine_reason, asset_spec,
+        last_accessed_at, access_count,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -501,6 +592,14 @@ export class MemoryDatabase {
       memory.project || "default",
       memory.module || "root",
       memory.triggerTags ? JSON.stringify(memory.triggerTags) : null,
+      memory.admissionStatus || "admitted",
+      memory.targetFramework || null,
+      memory.author || null,
+      memory.sourceDoc || null,
+      memory.reviewedBy || null,
+      memory.reviewedAt || null,
+      memory.quarantineReason || null,
+      memory.assetSpec ? JSON.stringify(memory.assetSpec) : null,
       memory.lastAccessedAt || 0,
       memory.accessCount || 0,
       memory.createdAt,
@@ -527,6 +626,12 @@ export class MemoryDatabase {
              provider_type as providerType,
              commit_hash as commitHash, workspace, project, module,
              trigger_tags as triggerTags,
+             admission_status as admissionStatus,
+             target_framework as targetFramework,
+             author, source_doc as sourceDoc,
+             reviewed_by as reviewedBy, reviewed_at as reviewedAt,
+             quarantine_reason as quarantineReason,
+             asset_spec as assetSpec,
              last_accessed_at as lastAccessedAt, access_count as accessCount,
              created_at as createdAt, updated_at as updatedAt
       FROM memories WHERE embedding IS NOT NULL
@@ -541,7 +646,126 @@ export class MemoryDatabase {
       workspace: r.workspace || "default",
       project: r.project || "default",
       module: r.module || "root",
+      admissionStatus: r.admissionStatus || "admitted",
       triggerTags: r.triggerTags ? JSON.parse(r.triggerTags) : [],
+      assetSpec: r.assetSpec ? JSON.parse(r.assetSpec) : undefined,
+      lastAccessedAt: r.lastAccessedAt || 0,
+      accessCount: r.accessCount || 0,
+      metadata: r.metadata ? JSON.parse(r.metadata) : undefined,
+      embedding: r.embedding ? bufferToFloat32(r.embedding) : undefined,
+    }));
+  }
+
+  getOperationalAssetById(id: string): MemoryRecord | null {
+    const stmt = this.db.prepare(`
+      SELECT id, memory_type as memoryType, modality, modal_type as modalType,
+             b64_source as b64Source, title, content,
+             metadata, embedding, embedding_model as embeddingModel,
+             embedding_dimension as embeddingDimension,
+             provider_type as providerType,
+             commit_hash as commitHash, workspace, project, module,
+             trigger_tags as triggerTags,
+             admission_status as admissionStatus,
+             target_framework as targetFramework,
+             author, source_doc as sourceDoc,
+             reviewed_by as reviewedBy, reviewed_at as reviewedAt,
+             quarantine_reason as quarantineReason,
+             asset_spec as assetSpec,
+             last_accessed_at as lastAccessedAt, access_count as accessCount,
+             created_at as createdAt, updated_at as updatedAt
+      FROM memories
+      WHERE id = ?
+    `);
+    const r = stmt.get(id) as any;
+    if (!r) return null;
+    return {
+      ...r,
+      workspace: r.workspace || "default",
+      project: r.project || "default",
+      module: r.module || "root",
+      admissionStatus: r.admissionStatus || "admitted",
+      triggerTags: r.triggerTags ? JSON.parse(r.triggerTags) : [],
+      assetSpec: r.assetSpec ? JSON.parse(r.assetSpec) : undefined,
+      lastAccessedAt: r.lastAccessedAt || 0,
+      accessCount: r.accessCount || 0,
+      metadata: r.metadata ? JSON.parse(r.metadata) : undefined,
+      embedding: r.embedding ? bufferToFloat32(r.embedding) : undefined,
+    };
+  }
+
+  updateOperationalAssetAdmission(
+    id: string,
+    status: AdmissionStatus,
+    reviewedBy: string,
+    reasonOrNotes?: string
+  ): boolean {
+    try {
+      const now = Date.now();
+      const stmt = this.db.prepare(`
+        UPDATE memories
+        SET admission_status = ?,
+            reviewed_by = ?,
+            reviewed_at = ?,
+            quarantine_reason = ?,
+            updated_at = ?
+        WHERE id = ?
+      `);
+      stmt.run(status, reviewedBy, now, reasonOrNotes || null, now, id);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  listOperationalAssets(options?: {
+    status?: AdmissionStatus;
+    workspace?: string;
+    project?: string;
+  }): MemoryRecord[] {
+    let query = `
+      SELECT id, memory_type as memoryType, modality, modal_type as modalType,
+             b64_source as b64Source, title, content,
+             metadata, embedding, embedding_model as embeddingModel,
+             embedding_dimension as embeddingDimension,
+             provider_type as providerType,
+             commit_hash as commitHash, workspace, project, module,
+             trigger_tags as triggerTags,
+             admission_status as admissionStatus,
+             target_framework as targetFramework,
+             author, source_doc as sourceDoc,
+             reviewed_by as reviewedBy, reviewed_at as reviewedAt,
+             quarantine_reason as quarantineReason,
+             asset_spec as assetSpec,
+             last_accessed_at as lastAccessedAt, access_count as accessCount,
+             created_at as createdAt, updated_at as updatedAt
+      FROM memories
+      WHERE memory_type IN ('prompt', 'workflow', 'skill', 'rule')
+    `;
+    const params: any[] = [];
+    if (options?.status) {
+      query += " AND admission_status = ?";
+      params.push(options.status);
+    }
+    if (options?.workspace) {
+      query += " AND workspace = ?";
+      params.push(options.workspace);
+    }
+    if (options?.project) {
+      query += " AND project = ?";
+      params.push(options.project);
+    }
+    query += " ORDER BY created_at DESC";
+
+    const stmt = this.db.prepare(query);
+    const rows = (params.length > 0 ? stmt.all(...params) : stmt.all()) as any[];
+    return rows.map((r) => ({
+      ...r,
+      workspace: r.workspace || "default",
+      project: r.project || "default",
+      module: r.module || "root",
+      admissionStatus: r.admissionStatus || "admitted",
+      triggerTags: r.triggerTags ? JSON.parse(r.triggerTags) : [],
+      assetSpec: r.assetSpec ? JSON.parse(r.assetSpec) : undefined,
       lastAccessedAt: r.lastAccessedAt || 0,
       accessCount: r.accessCount || 0,
       metadata: r.metadata ? JSON.parse(r.metadata) : undefined,
@@ -551,7 +775,12 @@ export class MemoryDatabase {
 
   getOperationalAssetsByTrigger(
     triggerTag: string,
-    options?: { workspace?: string; project?: string }
+    options?: {
+      workspace?: string;
+      project?: string;
+      filterAdmissionStatuses?: AdmissionStatus[];
+      includeCandidates?: boolean;
+    }
   ): MemoryRecord[] {
     let query = `
       SELECT id, memory_type as memoryType, modality, modal_type as modalType,
@@ -561,12 +790,30 @@ export class MemoryDatabase {
              provider_type as providerType,
              commit_hash as commitHash, workspace, project, module,
              trigger_tags as triggerTags,
+             admission_status as admissionStatus,
+             target_framework as targetFramework,
+             author, source_doc as sourceDoc,
+             reviewed_by as reviewedBy, reviewed_at as reviewedAt,
+             quarantine_reason as quarantineReason,
+             asset_spec as assetSpec,
              last_accessed_at as lastAccessedAt, access_count as accessCount,
              created_at as createdAt, updated_at as updatedAt
       FROM memories
       WHERE trigger_tags LIKE ?
     `;
     const params: any[] = [`%${triggerTag}%`];
+
+    if (options?.filterAdmissionStatuses && options.filterAdmissionStatuses.length > 0) {
+      const placeholders = options.filterAdmissionStatuses.map(() => "?").join(", ");
+      query += ` AND admission_status IN (${placeholders})`;
+      params.push(...options.filterAdmissionStatuses);
+    } else if (options?.includeCandidates) {
+      query += " AND admission_status IN ('admitted', 'candidate')";
+    } else {
+      // By default: admission gate strictly enforces 'admitted' assets only!
+      query += " AND admission_status = 'admitted'";
+    }
+
     if (options?.workspace) {
       query += " AND workspace = ?";
       params.push(options.workspace);
@@ -582,9 +829,11 @@ export class MemoryDatabase {
       workspace: r.workspace || "default",
       project: r.project || "default",
       module: r.module || "root",
+      admissionStatus: r.admissionStatus || "admitted",
+      triggerTags: r.triggerTags ? JSON.parse(r.triggerTags) : [],
+      assetSpec: r.assetSpec ? JSON.parse(r.assetSpec) : undefined,
       lastAccessedAt: r.lastAccessedAt || 0,
       accessCount: r.accessCount || 0,
-      triggerTags: r.triggerTags ? JSON.parse(r.triggerTags) : [],
       metadata: r.metadata ? JSON.parse(r.metadata) : undefined,
       embedding: r.embedding ? bufferToFloat32(r.embedding) : undefined,
     }));

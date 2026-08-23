@@ -52,6 +52,7 @@ export class HybridRetriever {
       module?: string;
       memoryType?: string;
       triggerTags?: string[];
+      admissionStatus?: string;
     }) => {
       if (targetWorkspace && item.workspace && item.workspace !== targetWorkspace) {
         return false;
@@ -67,6 +68,13 @@ export class HybridRetriever {
         options.filterMemoryTypes.length > 0 &&
         item.memoryType &&
         !options.filterMemoryTypes.includes(item.memoryType as any)
+      ) {
+        return false;
+      }
+      if (
+        options.filterAdmissionStatuses &&
+        options.filterAdmissionStatuses.length > 0 &&
+        !options.filterAdmissionStatuses.includes((item.admissionStatus || "admitted") as any)
       ) {
         return false;
       }
@@ -397,6 +405,11 @@ export class HybridRetriever {
           project: chunk.project,
           module: chunk.module,
           triggerTags: chunk.triggerTags,
+          admissionStatus: chunk.admissionStatus,
+          targetFramework: chunk.targetFramework,
+          author: chunk.author,
+          sourceDoc: chunk.sourceDoc,
+          assetSpec: chunk.assetSpec,
           lastAccessedAt: chunk.lastAccessedAt,
           accessCount: chunk.accessCount,
           semanticScore: ranked.semanticScore,
@@ -422,6 +435,11 @@ export class HybridRetriever {
             project: memory.project,
             module: memory.module,
             triggerTags: memory.triggerTags,
+            admissionStatus: memory.admissionStatus,
+            targetFramework: memory.targetFramework,
+            author: memory.author,
+            sourceDoc: memory.sourceDoc,
+            assetSpec: memory.assetSpec,
             lastAccessedAt: memory.lastAccessedAt,
             accessCount: memory.accessCount,
             semanticScore: ranked.semanticScore,

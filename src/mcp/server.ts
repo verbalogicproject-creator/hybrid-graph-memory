@@ -5,8 +5,8 @@ export class MemoryMcpServer {
   private engine: MemoryEngine;
   private rl: readline.Interface;
 
-  constructor() {
-    this.engine = new MemoryEngine();
+  constructor(engine?: MemoryEngine) {
+    this.engine = engine || new MemoryEngine();
     this.rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
@@ -80,23 +80,19 @@ export class MemoryMcpServer {
             },
             {
               name: "agy_load_operational_asset",
-              description: "Retrieve an operational asset (prompt, workflow, skill, or rule) by its trigger tag or query (Retrieval only — state tracking managed by agent)",
+              description: "Retrieve an operational asset (prompt, workflow, skill, or rule) with full trust, targeting, provenance, and staleness metadata by its trigger tag",
               inputSchema: {
                 type: "object",
                 properties: {
-                  triggerTag: { type: "string", description: "Trigger tag (e.g. 'deploy_flow', 'code_review_prompt')" },
-                  assetType: {
-                    type: "string",
-                    enum: ["prompt", "workflow", "skill", "rule"],
-                    description: "Optional asset type filter",
-                  },
+                  triggerTag: { type: "string", description: "Trigger tag (e.g. '@commit', 'deploy_flow', 'code_review_prompt')" },
+                  includeCandidates: { type: "boolean", description: "Whether to include unadmitted candidate assets (default: false)" },
                 },
                 required: ["triggerTag"],
               },
             },
             {
               name: "agy_ingest_operational_asset",
-              description: "Ingest a prompt, workflow, skill, or rule operational asset with exact trigger tags",
+              description: "Ingest an operational prompt, workflow, skill, or rule with schema validation, targeting, and provenance (enters as candidate)",
               inputSchema: {
                 type: "object",
                 properties: {
@@ -112,8 +108,87 @@ export class MemoryMcpServer {
                     items: { type: "string" },
                     description: "Exact trigger tags (e.g. ['@deploy', 'release_checklist'])",
                   },
+                  targetFramework: {
+                    type: "string",
+                    description: "Target framework/language/runtime (e.g. 'next@15.x', 'react@19.x', 'stripe-node@17.x')",
+                  },
+                  author: {
+                    type: "string",
+                    description: "Author / creator (e.g. 'developer', 'architect', 'evidence_gate')",
+                  },
+                  sourceDoc: { type: "string", description: "Optional source document filepath" },
+                  commitHash: { type: "string", description: "Optional source commit hash" },
+                  workflowSteps: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        order: { type: "number" },
+                        action: { type: "string" },
+                        requiredTools: { type: "array", items: { type: "string" } },
+                        description: { type: "string" },
+                      },
+                      required: ["order", "action"],
+                    },
+                    description: "Ordered steps for workflow assets (Required for workflow)",
+                  },
+                  promptVariables: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Template variables for prompt assets (Required for prompt)",
+                  },
+                  promptOutputShape: {
+                    type: "string",
+                    description: "Expected output format/schema for prompt assets (Required for prompt)",
+                  },
                 },
-                required: ["type", "title", "content"],
+                required: ["type", "title", "content", "triggerTags", "targetFramework", "author"],
+              },
+            },
+            {
+              name: "agy_admit_operational_asset",
+              description: "Promote a candidate operational asset to admitted (retrievable) status after verification",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  assetId: { type: "string", description: "Asset ID to admit" },
+                  reviewedBy: { type: "string", description: "Reviewer identifier" },
+                  notes: { type: "string", description: "Optional review notes" },
+                },
+                required: ["assetId", "reviewedBy"],
+              },
+            },
+            {
+              name: "agy_quarantine_operational_asset",
+              description: "Quarantine or reject an operational asset with a disposition reason (mirroring quarantine discipline)",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  assetId: { type: "string", description: "Asset ID to quarantine or reject" },
+                  reason: { type: "string", description: "Reason for quarantine or rejection" },
+                  reviewedBy: { type: "string", description: "Reviewer identifier" },
+                  status: {
+                    type: "string",
+                    enum: ["quarantined", "rejected"],
+                    description: "Disposition status (default: 'quarantined')",
+                  },
+                },
+                required: ["assetId", "reason", "reviewedBy"],
+              },
+            },
+            {
+              name: "agy_list_operational_assets",
+              description: "List operational assets with optional status and workspace filtering",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  status: {
+                    type: "string",
+                    enum: ["candidate", "admitted", "quarantined", "rejected"],
+                    description: "Optional admission status filter",
+                  },
+                  workspace: { type: "string", description: "Optional workspace filter" },
+                },
               },
             },
           ],
@@ -165,30 +240,116 @@ export class MemoryMcpServer {
       }
 
       if (name === "agy_load_operational_asset") {
-        const asset = await this.engine.getOperationalAssetByTrigger(args.triggerTag);
+        const asset = await this.engine.getOperationalAssetByTrigger(args.triggerTag, {
+          includeCandidates: args.includeCandidates,
+        });
         return {
           jsonrpc: "2.0",
           id,
           result: {
             content: [{ type: "text", text: asset ? JSON.stringify(asset, null, 2) : "null" }],
             found: !!asset,
+            asset,
           },
         };
       }
 
       if (name === "agy_ingest_operational_asset") {
-        const assetId = await this.engine.ingestOperationalAsset({
-          type: args.type,
-          title: args.title,
-          content: args.content,
-          triggerTags: args.triggerTags,
+        try {
+          const assetId = await this.engine.ingestOperationalAsset({
+            type: args.type,
+            title: args.title,
+            content: args.content,
+            triggerTags: args.triggerTags,
+            targetFramework: args.targetFramework,
+            author: args.author,
+            sourceDoc: args.sourceDoc,
+            commitHash: args.commitHash,
+            workflowSteps: args.workflowSteps,
+            promptVariables: args.promptVariables,
+            promptOutputShape: args.promptOutputShape,
+          });
+          return {
+            jsonrpc: "2.0",
+            id,
+            result: {
+              content: [{ type: "text", text: `Operational asset ingested as candidate: ${assetId}` }],
+              assetId,
+              status: "candidate",
+            },
+          };
+        } catch (err: any) {
+          return {
+            jsonrpc: "2.0",
+            id,
+            error: {
+              code: -32602,
+              message: err.message,
+              data: {
+                missingFields: err.missingFields,
+                invalidFields: err.invalidFields,
+              },
+            },
+          };
+        }
+      }
+
+      if (name === "agy_admit_operational_asset") {
+        const success = await this.engine.admitOperationalAsset(
+          args.assetId,
+          args.reviewedBy,
+          args.notes
+        );
+        return {
+          jsonrpc: "2.0",
+          id,
+          result: {
+            content: [
+              {
+                type: "text",
+                text: success
+                  ? `Asset '${args.assetId}' promoted to ADMITTED by ${args.reviewedBy}`
+                  : `Failed to admit asset '${args.assetId}'`,
+              },
+            ],
+            success,
+          },
+        };
+      }
+
+      if (name === "agy_quarantine_operational_asset") {
+        const isReject = args.status === "rejected";
+        const success = isReject
+          ? await this.engine.rejectOperationalAsset(args.assetId, args.reason, args.reviewedBy)
+          : await this.engine.quarantineOperationalAsset(args.assetId, args.reason, args.reviewedBy);
+        return {
+          jsonrpc: "2.0",
+          id,
+          result: {
+            content: [
+              {
+                type: "text",
+                text: success
+                  ? `Asset '${args.assetId}' status updated to ${isReject ? "REJECTED" : "QUARANTINED"}: ${args.reason}`
+                  : `Failed to update status for asset '${args.assetId}'`,
+              },
+            ],
+            success,
+          },
+        };
+      }
+
+      if (name === "agy_list_operational_assets") {
+        const assets = await this.engine.listOperationalAssets({
+          status: args.status,
+          workspace: args.workspace,
         });
         return {
           jsonrpc: "2.0",
           id,
           result: {
-            content: [{ type: "text", text: `Operational asset ingested successfully: ${assetId}` }],
-            assetId,
+            content: [{ type: "text", text: JSON.stringify(assets, null, 2) }],
+            count: assets.length,
           },
         };
       }
