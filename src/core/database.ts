@@ -200,6 +200,27 @@ export class MemoryDatabase {
       this.db.exec("ALTER TABLE memories ADD COLUMN modal_type TEXT DEFAULT 'text';");
     } catch (e) {}
     try {
+      this.db.exec("ALTER TABLE chunks ADD COLUMN is_quarantined INTEGER DEFAULT 0;");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE memories ADD COLUMN is_quarantined INTEGER DEFAULT 0;");
+    } catch (e) {}
+
+    // 3.5. Receipts table (SAG Incidents & Causal Memory)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS receipts (
+        id TEXT PRIMARY KEY,
+        incident_type TEXT NOT NULL,
+        level TEXT NOT NULL,
+        patch_hash TEXT,
+        b64_evidence TEXT,
+        target_framework TEXT,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_receipts_incident ON receipts(incident_type);
+    `);
+
+    try {
       this.db.exec("ALTER TABLE memories ADD COLUMN b64_source TEXT;");
     } catch (e) {}
     try {
@@ -1016,4 +1037,44 @@ export class MemoryDatabase {
   close() {
     this.db.close();
   }
+  // --- SAG Receipts (Causal Memory) ---
+
+  insertReceipt(receipt: import('./types').ReceiptRecord) {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO receipts (
+        id, incident_type, level, patch_hash, b64_evidence, target_framework, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      receipt.id,
+      receipt.incidentType,
+      receipt.level,
+      receipt.patchHash || null,
+      receipt.b64Evidence || null,
+      receipt.targetFramework || null,
+      receipt.createdAt
+    );
+  }
+
+  getReceipts(): import('./types').ReceiptRecord[] {
+    const stmt = this.db.prepare(`
+      SELECT id, incident_type as incidentType, level, patch_hash as patchHash,
+             b64_evidence as b64Evidence, target_framework as targetFramework, created_at as createdAt
+      FROM receipts
+      ORDER BY created_at DESC
+    `);
+    return stmt.all() as any[];
+  }
+
+  getReceiptsByIncidentType(incidentType: string): import('./types').ReceiptRecord[] {
+    const stmt = this.db.prepare(`
+      SELECT id, incident_type as incidentType, level, patch_hash as patchHash,
+             b64_evidence as b64Evidence, target_framework as targetFramework, created_at as createdAt
+      FROM receipts
+      WHERE incident_type = ?
+      ORDER BY created_at DESC
+    `);
+    return stmt.all(incidentType) as any[];
+  }
 }
+

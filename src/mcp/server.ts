@@ -191,6 +191,16 @@ export class MemoryMcpServer {
                 },
               },
             },
+            {
+              name: "agy_memory_receipts",
+              description: "Fetch SAG Causal Memory receipts and incidents to resolve current errors via historical L4 patches",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  incidentType: { type: "string", description: "Optional incident type to filter" }
+                }
+              }
+            }
           ],
         },
       };
@@ -237,6 +247,17 @@ export class MemoryMcpServer {
             content: [{ type: "text", text: JSON.stringify(filtered, null, 2) }],
           },
         };
+      }
+
+      if (name === "agy_memory_receipts") {
+        const incidentType = args.incidentType;
+        let receipts;
+        if (incidentType) {
+          receipts = (this.engine as any).db.getReceiptsByIncidentType(incidentType);
+        } else {
+          receipts = (this.engine as any).db.getReceipts();
+        }
+        return { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(receipts, null, 2) }] } };
       }
 
       if (name === "agy_load_operational_asset") {

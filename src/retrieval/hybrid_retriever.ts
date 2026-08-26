@@ -46,6 +46,26 @@ export class HybridRetriever {
       (options.strictNamespace !== false ? this.config.projectName : undefined);
     const targetModule = options.module;
 
+    // --- FG-RAG & Causal Memory Fast-Path ---
+    const causalContexts: RetrievedContext[] = [];
+    const isErrorQuery = query.toLowerCase().includes("error") || query.toLowerCase().includes("timeout") || query.toLowerCase().includes("failed");
+    if (intent === "operational" || isErrorQuery) {
+      const receipts = (this.db as any).getReceipts();
+      for (const r of receipts) {
+        if (query.toLowerCase().includes(r.incidentType.toLowerCase()) || (r.patchHash && query.includes(r.patchHash))) {
+          causalContexts.push({
+            id: r.id,
+            modality: "text",
+            content: `[CAUSAL INCIDENT RECEIPT] Level: ${r.level} | Type: ${r.incidentType} | Framework: ${r.targetFramework}\nEvidence ID: ${r.id}\nHistorical patch available: ${r.patchHash ? 'YES' : 'NO'}\n(Use this historical L4 verification to resolve the current incident)`,
+            sourceType: "causal_receipt",
+            finalScore: 1.5, // FG-RAG Over-boost
+            reason: `Direct Causal Memory Match (Incident: ${r.incidentType})`,
+            metadata: { level: r.level, patchHash: r.patchHash }
+          });
+        }
+      }
+    }
+
     const matchesNamespace = (item: {
       workspace?: string;
       project?: string;
@@ -489,6 +509,6 @@ export class HybridRetriever {
       this.db.recordAccess(chunkIdsToRecord, memoryIdsToRecord);
     }
 
-    return finalResults;
+    return [...causalContexts, ...finalResults].slice(0, limit);
   }
 }

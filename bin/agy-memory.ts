@@ -3,6 +3,9 @@
 import prompts from "prompts";
 import { MemoryEngine } from "../src/core/engine";
 import { AstDependencyMapper } from "../src/ast/mapper";
+import { runDoctor } from "../src/cli/doctor";
+import { runDashboard } from "../src/cli/dashboard";
+import { serveWebDashboard } from "../src/server/web_dashboard";
 
 function printBanner() {
   console.log(`
@@ -31,6 +34,9 @@ async function handleInteractiveMenu(engine: MemoryEngine) {
         { title: "🕸️ [ Graph Inspector ]", value: "graph" },
         { title: "📊 [ Memory Database Statistics ]", value: "stats" },
         { title: "🗺️ [ Generate AST Relations (.ctx) ]", value: "map:ast" },
+        { title: "🩺 [ Memory Doctor (Ripple Decay Review) ]", value: "doctor" },
+        { title: "🎛️ [ Dashboard (Causal Memory & Receipts) ]", value: "dashboard" },
+        { title: "🌐 [ Serve Visual Web Timeline ]", value: "serve" },
         { title: "🚪 [ Exit ]", value: "exit" },
       ],
       initial: 0,
@@ -154,6 +160,21 @@ async function handleInteractiveMenu(engine: MemoryEngine) {
         console.log(content);
         break;
       }
+
+      case "doctor": {
+        await runDoctor(engine);
+        break;
+      }
+
+      case "dashboard": {
+        await runDashboard(engine);
+        break;
+      }
+
+      case "serve": {
+        serveWebDashboard(engine);
+        break;
+      }
     }
   }
 }
@@ -270,6 +291,22 @@ async function main() {
         const mapper = new AstDependencyMapper();
         const content = mapper.generateCtxContent();
         console.log(content);
+        break;
+      }
+
+      case "doctor": {
+        await runDoctor(engine);
+        break;
+      }
+
+      case "dashboard": {
+        await runDashboard(engine);
+        break;
+      }
+
+      case "serve": {
+        serveWebDashboard(engine);
+        await new Promise(() => {}); // keep process alive
         break;
       }
 

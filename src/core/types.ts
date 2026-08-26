@@ -172,6 +172,7 @@ export interface ChunkRecord {
   reviewedBy?: string;
   reviewedAt?: number;
   quarantineReason?: string;
+  isQuarantined?: boolean;
   assetSpec?: OperationalAssetSpec;
   lastAccessedAt?: number;
   accessCount?: number;
@@ -204,11 +205,22 @@ export interface MemoryRecord {
   reviewedBy?: string;
   reviewedAt?: number;
   quarantineReason?: string;
+  isQuarantined?: boolean;
   assetSpec?: OperationalAssetSpec;
   lastAccessedAt?: number;
   accessCount?: number;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface ReceiptRecord {
+  id: string;
+  incidentType: string;
+  level: string;
+  patchHash?: string;
+  b64Evidence?: string;
+  targetFramework?: string;
+  createdAt: number;
 }
 
 export interface MemoryRelation {

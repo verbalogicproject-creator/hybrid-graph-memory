@@ -1,38 +1,7 @@
 {
-  "projectName": "antigravity-memory-os",
-  "providerMode": "auto",
+  "providerMode": "cloud",
   "cloud": {
     "embeddingModel": "gemini-embedding-2",
-    "dimensions": 768
-  },
-  "local": {
-    "embedderUrl": "http://127.0.0.1:8145/v1/embeddings",
-    "rerankerUrl": "http://127.0.0.1:8144/v1/rerank",
-    "generatorUrl": "http://127.0.0.1:8147/v1/chat/completions",
-    "generatorModels": [
-      "qwen2.5-3b-instruct-q4_0",
-      "microsoft_Phi-4-mini-instruct",
-      "Llama-3.2-3B-Instruct-Q4_0",
-      "gemma-4-E4B-it-Q4_0"
-    ],
-    "activeGenerator": "qwen2.5-3b-instruct-q4_0",
-    "dimensions": 768
-  },
-  "dbPath": ".memory/project_memory.db",
-  "sharedHivePath": "~/.antigravity/shards/global-hive.db",
-  "halfLifeDays": 14,
-  "disambiguationThreshold": 0.60,
-  "supportedExtensions": [
-    ".ts",
-    ".tsx",
-    ".js",
-    ".jsx",
-    ".json",
-    ".md",
-    ".mdx",
-    ".ctx",
-    ".py",
-    ".rs",
-    ".go"
-  ]
+    "generatorModel": "gemini-1.5-flash"
+  }
 }

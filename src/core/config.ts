@@ -8,6 +8,7 @@ export interface MemoryConfig {
   providerMode: "auto" | "cloud" | "local";
   cloud: {
     embeddingModel: string;
+    generatorModel: string;
     dimensions: number;
     apiKey?: string;
   };
@@ -74,6 +75,7 @@ export function loadMemoryConfig(startDir = process.cwd()): MemoryConfig {
     providerMode: parsed.providerMode || "auto",
     cloud: {
       embeddingModel: parsed.cloud?.embeddingModel || "gemini-embedding-2",
+      generatorModel: parsed.cloud?.generatorModel || "gemini-2.5-flash",
       dimensions: parsed.cloud?.dimensions || 768,
       apiKey: process.env.GEMINI_API_KEY,
     },

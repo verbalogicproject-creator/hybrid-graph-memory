@@ -31,6 +31,7 @@ import {
 } from "./types";
 import { ProjectScanner } from "../ast/scanner";
 import { AstDependencyMapper } from "../ast/mapper";
+import { RippleDecayHook } from "../hooks/ripple_decay";
 
 export class MemoryEngine {
   private config: MemoryConfig;
@@ -53,8 +54,9 @@ export class MemoryEngine {
     this.config = { ...loadMemoryConfig(), ...(customConfig || {}) };
     this.db = new MemoryDatabase(this.config.dbPath);
 
-    // Local Reranker & Generator
     this.localReranker = new LocalBgeReranker(this.config.local.rerankerUrl);
+    
+    // We will initialize the correct generator inside init() based on providerMode
     this.localGenerator = new LocalLlamaGenerator(
       this.config.local.generatorUrl,
       this.config.local.generatorModels,
@@ -143,6 +145,16 @@ export class MemoryEngine {
         this.config,
         this.localReranker
       );
+
+      // Select Generator based on provider mode
+      if (mode === "cloud" || (mode === "auto" && selectedProvider.providerType === "cloud")) {
+        const { GeminiCloudGenerator } = require("../retrieval/gemini_generator");
+        this.localGenerator = new GeminiCloudGenerator(
+          this.config.cloud.apiKey || process.env.GEMINI_API_KEY,
+          this.config.cloud.generatorModel
+        );
+      }
+
       this.initialized = true;
 
       // Startup provider logging
@@ -356,6 +368,11 @@ export class MemoryEngine {
     onProgress?.({ phase: "completed", message: "Indexing completed." });
 
     const stats = this.db.getStats();
+
+    // Fire Ripple Decay Hook
+    const rippleHook = new RippleDecayHook(this.db, this.config.projectRoot || process.cwd());
+    rippleHook.execute();
+
     return {
       indexed: indexedCount,
       unchanged: unchangedCount,
