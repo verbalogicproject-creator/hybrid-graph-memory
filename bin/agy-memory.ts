@@ -37,6 +37,7 @@ async function handleInteractiveMenu(engine: MemoryEngine) {
         { title: "🩺 [ Memory Doctor (Ripple Decay Review) ]", value: "doctor" },
         { title: "🎛️ [ Dashboard (Causal Memory & Receipts) ]", value: "dashboard" },
         { title: "🌐 [ Serve Visual Web Timeline ]", value: "serve" },
+        { title: "🌌 [ Export 3D Visual Graph ]", value: "visualize" },
         { title: "🚪 [ Exit ]", value: "exit" },
       ],
       initial: 0,
@@ -175,6 +176,16 @@ async function handleInteractiveMenu(engine: MemoryEngine) {
         serveWebDashboard(engine);
         break;
       }
+
+      case "visualize": {
+        const { GraphExporter } = require("../src/visualization/exporter");
+        const exporter = new GraphExporter(engine);
+        const outputPath = require("path").resolve(process.cwd(), "graph_3d.html");
+        console.log(`\n🌌 Exporting 3D Graph Visualization to ${outputPath}...\n`);
+        await exporter.exportToHtml(outputPath);
+        console.log(`✅ Visualization exported successfully. Open file://${outputPath} in your browser.\n`);
+        break;
+      }
     }
   }
 }
@@ -310,6 +321,16 @@ async function main() {
         break;
       }
 
+      case "visualize": {
+        const { GraphExporter } = require("../src/visualization/exporter");
+        const exporter = new GraphExporter(engine);
+        const outputPath = require("path").resolve(process.cwd(), "graph_3d.html");
+        console.log(`\n🌌 Exporting 3D Graph Visualization to ${outputPath}...\n`);
+        await exporter.exportToHtml(outputPath);
+        console.log(`✅ Visualization exported successfully. Open file://${outputPath} in your browser.\n`);
+        break;
+      }
+
       default: {
         console.log(`
 Antigravity Memory OS — Standalone CLI
@@ -323,6 +344,7 @@ Usage:
   npm run memory -- stats         Display database statistics
   npm run memory -- graph         List architectural GraphRAG relation edges
   npm run memory -- map:ast       Generate AST GraphRAG relations
+  npm run memory -- visualize     Export a 3D HTML Graph visualization
 `);
       }
     }

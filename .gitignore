@@ -2,3 +2,4 @@
 node_modules/
 dist/
 .env*
+graph_3d.html\nthree.min.js

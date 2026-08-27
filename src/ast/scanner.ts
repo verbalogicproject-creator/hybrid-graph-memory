@@ -77,7 +77,8 @@ export class ProjectScanner {
         if (
           this.config.excludedFiles.includes(entry.name) ||
           entry.name.startsWith(".") ||
-          entry.name.endsWith(".d.ts")
+          entry.name.endsWith(".d.ts") ||
+          entry.name.endsWith(".min.js")
         ) {
           continue;
         }
