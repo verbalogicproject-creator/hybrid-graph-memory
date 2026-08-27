@@ -374,6 +374,7 @@ export class MemoryEngine {
     const rippleHook = new RippleDecayHook(this.db, this.config.projectRoot || process.cwd());
     rippleHook.execute();
 
+    (this as any).broadcastGraphUpdate?.();
     return {
       indexed: indexedCount,
       unchanged: unchangedCount,

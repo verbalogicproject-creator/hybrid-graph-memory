@@ -1,6 +1,10 @@
 import http from "node:http";
 import { MemoryEngine } from "../core/engine";
 
+import { GraphExporter } from "../visualization/exporter";
+import { ThreeJSGraphRenderer } from "../visualization/threejs_renderer";
+import { Server as SocketIOServer } from "socket.io";
+
 export function serveWebDashboard(engine: MemoryEngine, port = 3000) {
   const server = http.createServer((req, res) => {
     if (req.url === "/") {
@@ -26,6 +30,7 @@ export function serveWebDashboard(engine: MemoryEngine, port = 3000) {
         <body>
           <h1>SAG Receipts Visual Timeline</h1>
           <p>Cross-modal evidence anchoring for Causal Memory.</p>
+          <a href="/graph" style="display:inline-block; margin-bottom: 20px; padding: 10px 15px; background: #2a9fd6; color: white; text-decoration: none; border-radius: 4px;">Open Live 3D Graph</a>
       `;
 
       if (receipts.length === 0) {
@@ -55,11 +60,28 @@ export function serveWebDashboard(engine: MemoryEngine, port = 3000) {
 
       res.writeHead(200, { "Content-Type": "text/html" });
       res.end(html);
+    } else if (req.url === "/graph") {
+      const renderer = new ThreeJSGraphRenderer();
+      const html = renderer.generateLiveHtml("Knowledge Graph 3D");
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end(html);
     } else {
       res.writeHead(404);
       res.end("Not Found");
     }
   });
+
+  const io = new SocketIOServer(server);
+  io.on("connection", (socket) => {
+    const exporter = new GraphExporter(engine);
+    socket.emit("graph-update", exporter.getGraphData());
+  });
+
+  // Expose a method to broadcast updates from outside
+  (engine as any).broadcastGraphUpdate = () => {
+    const exporter = new GraphExporter(engine);
+    io.emit("graph-update", exporter.getGraphData());
+  };
 
   server.on('error', (e: any) => {
     if (e.code === 'EADDRINUSE') {

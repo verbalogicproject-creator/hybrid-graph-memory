@@ -8,7 +8,7 @@ export class GraphExporter {
     this.engine = engine;
   }
 
-  public async exportToHtml(outputPath: string, title: string = "Knowledge Graph 3D"): Promise<string> {
+  public getGraphData(): { graphData: GraphData, colors: Record<string, string>, legendHtml: string } {
     const relations = this.engine.getAllRelations();
 
     // Fetch chunk metadata for rich descriptions
@@ -60,6 +60,16 @@ export class GraphExporter {
       edges: edges,
     };
 
+    const renderer = new ThreeJSGraphRenderer();
+    const nodeTypes = new Set(graphData.nodes.map((n) => n.type || "unknown"));
+    const colors = (renderer as any).generateColorPalette(nodeTypes);
+    const legendHtml = (renderer as any).generateLegendHtml(colors);
+
+    return { graphData, colors, legendHtml };
+  }
+
+  public async exportToHtml(outputPath: string, title: string = "Knowledge Graph 3D"): Promise<string> {
+    const { graphData } = this.getGraphData();
     const renderer = new ThreeJSGraphRenderer();
     return renderer.generateHtml(graphData, outputPath, title);
   }
