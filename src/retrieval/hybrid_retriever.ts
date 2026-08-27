@@ -37,13 +37,33 @@ export class HybridRetriever {
     const candidateLimit = options.candidateLimit ?? this.config.candidateLimit;
     const intent = options.intent || inferQueryIntent(query);
 
+    const retrievalMode = options.retrievalMode ?? 'strict';
+    if (options.strictNamespace === false && retrievalMode !== 'federated') {
+      throw new Error(
+        'Unscoped retrieval is disabled. Use retrievalMode: federated with an explicit federatedAdmission.'
+      );
+    }
+    const federation = options.federatedAdmission;
+    if (retrievalMode === 'federated') {
+      if (
+        !federation ||
+        !federation.approvedBy.trim() ||
+        !federation.purpose.trim() ||
+        federation.allowedWorkspaces.length === 0
+      ) {
+        throw new Error(
+          'Federated retrieval requires approvedBy, purpose, and at least one allowed workspace.'
+        );
+      }
+    }
+
     // Strict hierarchical namespace resolution: Workspace -> Project -> Module
     const targetWorkspace =
       options.workspace ??
-      (options.strictNamespace !== false ? this.config.workspace : undefined);
+      (retrievalMode === 'strict' ? this.config.workspace : undefined);
     const targetProject =
       options.project ??
-      (options.strictNamespace !== false ? this.config.projectName : undefined);
+      (retrievalMode === 'strict' ? this.config.projectName : undefined);
     const targetModule = options.module;
 
     // --- FG-RAG & Causal Memory Fast-Path ---
@@ -56,11 +76,11 @@ export class HybridRetriever {
           causalContexts.push({
             id: r.id,
             modality: "text",
-            content: `[CAUSAL INCIDENT RECEIPT] Level: ${r.level} | Type: ${r.incidentType} | Framework: ${r.targetFramework}\nEvidence ID: ${r.id}\nHistorical patch available: ${r.patchHash ? 'YES' : 'NO'}\n(Use this historical L4 verification to resolve the current incident)`,
-            sourceType: "causal_receipt",
+            content: `[UNVERIFIED LEGACY EVIDENCE REFERENCE] Incident Type: ${r.incidentType} | Framework: ${r.targetFramework}\nEvidence ID: ${r.id}\nHistorical patch available: ${r.patchHash ? 'YES' : 'NO'}\n(NOTE: This is a local memory reference, not an authoritative SAG receipt. Does not grant L3/L4/L5 verification.)`,
+            sourceType: "legacy_evidence_reference",
             finalScore: 1.5, // FG-RAG Over-boost
-            reason: `Direct Causal Memory Match (Incident: ${r.incidentType})`,
-            metadata: { level: r.level, patchHash: r.patchHash }
+            reason: `Legacy Evidence Reference (Incident: ${r.incidentType})`,
+            metadata: { patchHash: r.patchHash }
           });
         }
       }
@@ -74,13 +94,29 @@ export class HybridRetriever {
       triggerTags?: string[];
       admissionStatus?: string;
     }) => {
-      if (targetWorkspace && item.workspace && item.workspace !== targetWorkspace) {
+      if (retrievalMode === 'federated') {
+        // Federation is positive admission only: no identity, no result.
+        if (!item.workspace || !federation!.allowedWorkspaces.includes(item.workspace)) {
+          return false;
+        }
+        if (item.admissionStatus !== "admitted") {
+          return false;
+        }
+        if (
+          federation!.allowedProjects &&
+          (!item.project || !federation!.allowedProjects.includes(item.project))
+        ) {
+          return false;
+        }
+      }
+      // Missing or mismatched workspace/project identity cannot enter a strict query
+      if (targetWorkspace && item.workspace !== targetWorkspace) {
         return false;
       }
-      if (targetProject && item.project && item.project !== targetProject) {
+      if (targetProject && item.project !== targetProject) {
         return false;
       }
-      if (targetModule && item.module && item.module !== targetModule) {
+      if (targetModule && item.module !== targetModule) {
         return false;
       }
       if (
@@ -509,6 +545,8 @@ export class HybridRetriever {
       this.db.recordAccess(chunkIdsToRecord, memoryIdsToRecord);
     }
 
-    return [...causalContexts, ...finalResults].slice(0, limit);
+    // Legacy rows have no namespace provenance, so generic retrieval cannot
+    // surface them. Use the explicit read-only evidence-reference lookup.
+    return finalResults;
   }
 }

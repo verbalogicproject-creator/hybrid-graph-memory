@@ -17,6 +17,7 @@ import {
   EmbeddingProvider,
   FileRecord,
   IndexStats,
+  LegacyEvidenceReference,
   MemoryModality,
   MemoryRecord,
   MemoryRelation,
@@ -591,7 +592,8 @@ export class MemoryEngine {
       title: asset.title,
       content: asset.content,
       triggerTags: asset.triggerTags,
-      admissionStatus: asset.admissionStatus || "candidate", // E3: enters as candidate by default
+      // A model may suggest an asset, but cannot promote its own suggestion.
+      admissionStatus: asset.modelProposed ? "candidate" : (asset.admissionStatus || "candidate"),
       targetFramework: asset.targetFramework,
       author: asset.author,
       sourceDoc: asset.sourceDoc,
@@ -739,6 +741,35 @@ export class MemoryEngine {
 
   public getAllRelations(options?: { workspace?: string; project?: string }): MemoryRelation[] {
     return this.db.getAllRelations(options);
+  }
+
+  /** The namespace configured for this engine; exposed for bounded integrations. */
+  public getProjectScope(): { workspace: string; project: string } {
+    return { workspace: this.config.workspace, project: this.config.projectName };
+  }
+
+  /**
+   * Read-only compatibility view for rows written by older Antigravity builds.
+   * Fractal Memory neither writes these rows nor interprets their old level as
+   * SAG evidence.
+   */
+  public getLegacyEvidenceReferences(incidentType?: string): LegacyEvidenceReference[] {
+    const rows = incidentType
+      ? this.db.getReceiptsByIncidentType(incidentType)
+      : this.db.getReceipts();
+    return rows.map((row) => ({
+      id: row.id,
+      incidentType: row.incidentType,
+      patchHash: row.patchHash,
+      targetFramework: row.targetFramework,
+      createdAt: row.createdAt,
+      evidenceStatus: "unverified_legacy" as const,
+      provenance: "local_memory_legacy_table" as const,
+    }));
+  }
+
+  public getLegacyEvidenceReference(id: string): LegacyEvidenceReference | null {
+    return this.getLegacyEvidenceReferences().find((reference) => reference.id === id) || null;
   }
 
   public getStats(): IndexStats {

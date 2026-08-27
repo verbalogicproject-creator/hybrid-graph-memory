@@ -1,5 +1,5 @@
 {
-  "providerMode": "cloud",
+  "providerMode": "local",
   "cloud": {
     "embeddingModel": "gemini-embedding-2",
     "generatorModel": "gemini-1.5-flash"

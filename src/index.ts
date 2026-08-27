@@ -13,3 +13,4 @@ export * from "./agentic/disambiguation";
 export * from "./agentic/proactive_rag";
 export * from "./ast/mapper";
 export * from "./mcp/server";
+export * from "./core/fractal_port";

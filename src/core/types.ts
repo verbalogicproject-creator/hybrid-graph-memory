@@ -40,6 +40,21 @@ export type AdmissionStatus =
   | "quarantined"
   | "rejected";
 
+/** Retrieval stays inside one project unless the caller deliberately admits a federation. */
+export type RetrievalMode = "strict" | "federated";
+
+/**
+ * Caller-supplied admission for a deliberately bounded federated search.
+ * This is retrieval policy and provenance, never an authority grant.
+ */
+export interface FederatedSearchAdmission {
+  approvedBy: string;
+  purpose: string;
+  allowedWorkspaces: string[];
+  /** Optional second boundary inside the admitted workspaces. */
+  allowedProjects?: string[];
+}
+
 export interface WorkflowStep {
   order: number;
   action: string;
@@ -86,6 +101,8 @@ export interface OperationalAssetInput {
   promptOutputShape?: string;
   spec?: OperationalAssetSpec;
   admissionStatus?: AdmissionStatus;
+  /** Model-originated proposals are always persisted as candidates. */
+  modelProposed?: boolean;
   metadata?: Record<string, unknown>;
 }
 
@@ -221,6 +238,21 @@ export interface ReceiptRecord {
   b64Evidence?: string;
   targetFramework?: string;
   createdAt: number;
+}
+
+/**
+ * A compatibility view over historical rows in the legacy `receipts` table.
+ * It intentionally omits the old level field: Memory does not issue SAG
+ * evidence levels and these rows are not SAG receipts.
+ */
+export interface LegacyEvidenceReference {
+  id: string;
+  incidentType: string;
+  patchHash?: string;
+  targetFramework?: string;
+  createdAt: number;
+  evidenceStatus: "unverified_legacy";
+  provenance: "local_memory_legacy_table";
 }
 
 export interface MemoryRelation {
@@ -371,6 +403,11 @@ export interface SearchOptions {
   workspace?: string;
   project?: string;
   module?: string;
+  /** Defaults to strict. Federation is never inferred from a missing scope. */
+  retrievalMode?: RetrievalMode;
+  /** Required whenever retrievalMode is federated. */
+  federatedAdmission?: FederatedSearchAdmission;
+  /** @deprecated Use retrievalMode: "federated" with federatedAdmission. */
   strictNamespace?: boolean;
 }
 

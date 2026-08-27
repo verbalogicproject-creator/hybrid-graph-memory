@@ -1,12 +1,20 @@
 import readline from "node:readline";
 import { MemoryEngine } from "../core/engine";
 
+export interface MemoryMcpServerOptions {
+  /** Local-only escape hatch. The default server exposes a read-only boundary. */
+  mutationMode?: boolean;
+}
+
 export class MemoryMcpServer {
   private engine: MemoryEngine;
   private rl: readline.Interface;
+  private mutationMode: boolean;
 
-  constructor(engine?: MemoryEngine) {
+  constructor(engine?: MemoryEngine, options: MemoryMcpServerOptions | boolean = {}) {
     this.engine = engine || new MemoryEngine();
+    this.mutationMode =
+      typeof options === "boolean" ? options : options.mutationMode === true;
     this.rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
@@ -92,7 +100,7 @@ export class MemoryMcpServer {
             },
             {
               name: "agy_ingest_operational_asset",
-              description: "Ingest an operational prompt, workflow, skill, or rule with schema validation, targeting, and provenance (enters as candidate)",
+              description: "[LOCAL MUTATION MODE REQUIRED] Propose an operational asset as a candidate; model output is never admitted automatically",
               inputSchema: {
                 type: "object",
                 properties: {
@@ -147,7 +155,7 @@ export class MemoryMcpServer {
             },
             {
               name: "agy_admit_operational_asset",
-              description: "Promote a candidate operational asset to admitted (retrievable) status after verification",
+              description: "[LOCAL MUTATION MODE REQUIRED] Manually admit a candidate after local review",
               inputSchema: {
                 type: "object",
                 properties: {
@@ -160,7 +168,7 @@ export class MemoryMcpServer {
             },
             {
               name: "agy_quarantine_operational_asset",
-              description: "Quarantine or reject an operational asset with a disposition reason (mirroring quarantine discipline)",
+              description: "[LOCAL MUTATION MODE REQUIRED] Quarantine or reject an operational asset after local review",
               inputSchema: {
                 type: "object",
                 properties: {
@@ -193,7 +201,7 @@ export class MemoryMcpServer {
             },
             {
               name: "agy_memory_receipts",
-              description: "Fetch SAG Causal Memory receipts and incidents to resolve current errors via historical L4 patches",
+              description: "Read unverified legacy evidence references. These are local memory references, not SAG receipts or evidence levels.",
               inputSchema: {
                 type: "object",
                 properties: {
@@ -251,13 +259,8 @@ export class MemoryMcpServer {
 
       if (name === "agy_memory_receipts") {
         const incidentType = args.incidentType;
-        let receipts;
-        if (incidentType) {
-          receipts = (this.engine as any).db.getReceiptsByIncidentType(incidentType);
-        } else {
-          receipts = (this.engine as any).db.getReceipts();
-        }
-        return { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(receipts, null, 2) }] } };
+        const references = this.engine.getLegacyEvidenceReferences(incidentType);
+        return { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(references, null, 2) }] } };
       }
 
       if (name === "agy_load_operational_asset") {
@@ -276,6 +279,9 @@ export class MemoryMcpServer {
       }
 
       if (name === "agy_ingest_operational_asset") {
+        if (!this.mutationMode) {
+          return { jsonrpc: "2.0", id, error: { code: -32600, message: "Mutation operations are disabled in read-only mode" } };
+        }
         try {
           const assetId = await this.engine.ingestOperationalAsset({
             type: args.type,
@@ -289,6 +295,7 @@ export class MemoryMcpServer {
             workflowSteps: args.workflowSteps,
             promptVariables: args.promptVariables,
             promptOutputShape: args.promptOutputShape,
+            modelProposed: true,
           });
           return {
             jsonrpc: "2.0",
@@ -316,6 +323,9 @@ export class MemoryMcpServer {
       }
 
       if (name === "agy_admit_operational_asset") {
+        if (!this.mutationMode) {
+          return { jsonrpc: "2.0", id, error: { code: -32600, message: "Mutation operations are disabled in read-only mode" } };
+        }
         const success = await this.engine.admitOperationalAsset(
           args.assetId,
           args.reviewedBy,
@@ -339,6 +349,9 @@ export class MemoryMcpServer {
       }
 
       if (name === "agy_quarantine_operational_asset") {
+        if (!this.mutationMode) {
+          return { jsonrpc: "2.0", id, error: { code: -32600, message: "Mutation operations are disabled in read-only mode" } };
+        }
         const isReject = args.status === "rejected";
         const success = isReject
           ? await this.engine.rejectOperationalAsset(args.assetId, args.reason, args.reviewedBy)

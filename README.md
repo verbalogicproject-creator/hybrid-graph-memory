@@ -1,4 +1,4 @@
-# 🌌 Antigravity Memory OS — The Architecture's Self-Awareness Layer & Master Specification
+# 🌌 Fractal Memory — powered by Antigravity Memory OS
 
 **Document Version:** `4.0.0-SELF-AWARENESS`  
 **Target Audience:** Novice Developers, Seasoned Engineers, Cold-Started AI Agents, and Peer Assistants  
@@ -23,6 +23,14 @@
 ---
 
 ## 1. The Grand Vision & Identity (System Self-Awareness)
+
+> **Fractal family boundary (current).** This package is **Fractal Memory —
+> powered by Antigravity Memory OS**: local-first project indexing, topology,
+> decisions, retrieval and non-authoritative experiential memory. Codio builds
+> applications. SAG/Fractal Runtime owns authority, actions, observations,
+> evidence levels and receipts. Fractal Base will own users, workspaces,
+> application data, auth, storage, realtime, secrets and jobs. Memory does not
+> own any of those surfaces and never promotes a local record to SAG evidence.
 
 ### What Am I?
 I am **Antigravity Memory OS**: an autonomous, local, multimodal memory engine and collective intelligence layer. I bridge the gap between large language models (LLMs) and rapidly evolving codebases by providing:

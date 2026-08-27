@@ -928,7 +928,17 @@ deploy:
   await mcpEngine.init();
 
   const { MemoryMcpServer } = require("../src/mcp/server");
-  const mcpServer = new MemoryMcpServer(mcpEngine);
+  const readOnlyMcpServer = new MemoryMcpServer(mcpEngine);
+  const blockedMutation = await (readOnlyMcpServer as any).handleRequest({
+    jsonrpc: "2.0",
+    id: "read-only-negative",
+    method: "tools/call",
+    params: { name: "agy_ingest_operational_asset", arguments: {} },
+  });
+  if (blockedMutation.error?.code !== -32600) {
+    throw new Error("FAIL (Edge Case 9): MCP mutation was not blocked in default read-only mode!");
+  }
+  const mcpServer = new MemoryMcpServer(mcpEngine, true);
 
   // Test tools/list
   const listResp = await (mcpServer as any).handleRequest({

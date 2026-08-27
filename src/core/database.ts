@@ -1037,9 +1037,14 @@ export class MemoryDatabase {
   close() {
     this.db.close();
   }
-  // --- SAG Receipts (Causal Memory) ---
+  // --- Legacy evidence references ---
+  // Historical rows are retained for compatibility only. Fractal Memory does
+  // not create, upgrade, or interpret them as SAG receipts.
 
   insertReceipt(receipt: import('./types').ReceiptRecord) {
+    void receipt;
+    throw new Error('Legacy evidence references are read-only in Fractal Memory; use SAG/Fractal Runtime for receipts.');
+    /* Historical write path deliberately disabled.
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO receipts (
         id, incident_type, level, patch_hash, b64_evidence, target_framework, created_at
@@ -1053,7 +1058,7 @@ export class MemoryDatabase {
       receipt.b64Evidence || null,
       receipt.targetFramework || null,
       receipt.createdAt
-    );
+    ); */
   }
 
   getReceipts(): import('./types').ReceiptRecord[] {
@@ -1077,4 +1082,3 @@ export class MemoryDatabase {
     return stmt.all(incidentType) as any[];
   }
 }
-

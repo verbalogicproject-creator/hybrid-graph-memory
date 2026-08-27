@@ -1,7 +1,7 @@
 {
   "name": "antigravity-memory-os",
   "version": "1.0.0",
-  "description": "Autonomous Local Multimodal Memory OS & Multi-Project Hive-Mind Engine",
+  "description": "Fractal Memory — powered by Antigravity Memory OS.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
@@ -16,6 +16,7 @@
     "build": "tsc",
     "start": "tsx bin/agy-memory.ts",
     "test": "tsx tests/audit_suite.ts",
+    "test:alignment": "tsx tests/fractal_alignment.ts",
     "mcp": "tsx src/mcp/server.ts"
   },
   "keywords": [
