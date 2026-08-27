@@ -9,8 +9,21 @@ export class GraphExporter {
   }
 
   public async exportToHtml(outputPath: string, title: string = "Knowledge Graph 3D"): Promise<string> {
-    // 1. Fetch relations
     const relations = this.engine.getAllRelations();
+
+    // Fetch chunk metadata for rich descriptions
+    const chunks = (this.engine as any).db.db.prepare("SELECT file_id, symbol_name, content FROM chunks").all();
+    const chunkMap = new Map<string, string>();
+    for (const chunk of chunks) {
+      if (chunk.symbol_name) {
+        chunkMap.set(chunk.symbol_name, chunk.content.substring(0, 300) + (chunk.content.length > 300 ? "..." : ""));
+      } else if (chunk.file_id) {
+        // Just keep the first chunk of the file if no symbol
+        if (!chunkMap.has(chunk.file_id)) {
+          chunkMap.set(chunk.file_id, chunk.content.substring(0, 300) + (chunk.content.length > 300 ? "..." : ""));
+        }
+      }
+    }
 
     const nodesMap = new Map<string, VisNode>();
     const edges: VisEdge[] = [];
@@ -23,7 +36,7 @@ export class GraphExporter {
           id: rel.fromId,
           name: rel.fromId,
           type: this.guessNodeType(rel.fromId),
-          description: `Component/Module ${rel.fromId}`,
+          description: chunkMap.get(rel.fromId) || `Component/Module ${rel.fromId}`,
         });
       }
       if (!nodesMap.has(rel.toId)) {
@@ -31,7 +44,7 @@ export class GraphExporter {
           id: rel.toId,
           name: rel.toId,
           type: this.guessNodeType(rel.toId),
-          description: `Component/Module ${rel.toId}`,
+          description: chunkMap.get(rel.toId) || `Component/Module ${rel.toId}`,
         });
       }
 

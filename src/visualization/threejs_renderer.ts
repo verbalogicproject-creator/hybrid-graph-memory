@@ -71,65 +71,135 @@ export class ThreeJSGraphRenderer {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>${title}</title>
     <style>
-        body { margin: 0; overflow: hidden; font-family: sans-serif; background: #0a0e27; color: white; }
+        body { margin: 0; overflow: hidden; font-family: sans-serif; background: #0a0e27; color: white; touch-action: none; }
         #graph-container { width: 100vw; height: 100vh; }
-        #ui-panel {
-            position: absolute; top: 10px; left: 10px;
-            background: rgba(10, 14, 39, 0.9);
-            padding: 15px; border-radius: 8px; border: 1px solid #2a9fd6;
-            max-width: 300px;
+        
+        /* Floating Top Bar (Mobile Optimized) */
+        #top-bar {
+            position: absolute; top: 10px; left: 10px; right: 10px;
+            display: flex; justify-content: space-between; align-items: flex-start;
             pointer-events: none;
         }
-        .legend-item { display: flex; align-items: center; margin: 5px 0; font-size: 12px; }
-        .legend-color { width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; }
+        .panel {
+            background: rgba(10, 14, 39, 0.9);
+            padding: 12px; border-radius: 8px; border: 1px solid #2a9fd6;
+            backdrop-filter: blur(4px); pointer-events: auto;
+        }
+        
+        /* Legend */
+        #legend { font-size: 11px; max-height: 150px; overflow-y: auto; pointer-events: auto; }
+        .legend-item { display: flex; align-items: center; margin: 4px 0; }
+        .legend-color { width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+
+        /* Action Buttons */
+        .btn {
+            background: #2a9fd6; color: white; border: none; border-radius: 20px;
+            padding: 10px 16px; font-weight: bold; font-size: 14px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            pointer-events: auto; cursor: pointer;
+        }
+
+        /* Bottom Sheet for Rich Metadata */
+        #bottom-sheet {
+            position: absolute; bottom: -400px; left: 0; right: 0;
+            background: #111536; border-top: 2px solid #2a9fd6;
+            border-top-left-radius: 16px; border-top-right-radius: 16px;
+            padding: 20px; transition: bottom 0.3s cubic-bezier(0.1, 0.8, 0.2, 1);
+            box-shadow: 0 -10px 20px rgba(0,0,0,0.5);
+            max-height: 40vh; overflow-y: auto;
+            pointer-events: auto;
+        }
+        #bottom-sheet.open { bottom: 0; }
+        #bs-close {
+            position: absolute; top: 15px; right: 20px;
+            font-size: 24px; color: #888; cursor: pointer; font-weight: bold;
+        }
+        #bs-title { color: #fff; font-size: 18px; margin: 0 0 5px 0; padding-right: 30px; word-break: break-all; }
+        #bs-type { color: #2a9fd6; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 15px; }
+        #bs-desc { color: #ccc; font-size: 13px; line-height: 1.5; white-space: pre-wrap; font-family: monospace; background: #0a0e27; padding: 10px; border-radius: 6px;}
     </style>
-    <!-- Use 3d-force-graph CDN for robust WebGL rendering and physics -->
     <script src="https://unpkg.com/3d-force-graph"></script>
 </head>
 <body>
     <div id="graph-container"></div>
     
-    <div id="ui-panel">
-        <h2 style="margin: 0 0 10px 0; font-size: 16px; color: #2a9fd6;">${title}</h2>
-        <div style="font-size: 12px; margin-bottom: 10px;">
-            Nodes: ${graphData.nodes.length} <br>
-            Edges: ${graphData.edges.length}
+    <div id="top-bar">
+        <div class="panel">
+            <h2 style="margin: 0 0 5px 0; font-size: 14px; color: #2a9fd6;">${title}</h2>
+            <div style="font-size: 11px; color: #aaa;">N: ${graphData.nodes.length} | E: ${graphData.edges.length}</div>
         </div>
-        <h3 style="margin: 10px 0 5px 0; font-size: 14px; color: #2a9fd6;">Types</h3>
-        ${this.generateLegendHtml(colors)}
+        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 10px;">
+            <button class="btn" onclick="resetCamera()">Reset View</button>
+            <div id="legend" class="panel">
+                ${this.generateLegendHtml(colors)}
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Sheet -->
+    <div id="bottom-sheet">
+        <div id="bs-close" onclick="closeSheet()">×</div>
+        <h3 id="bs-title">Node Name</h3>
+        <div id="bs-type">TYPE</div>
+        <div id="bs-desc">Description...</div>
     </div>
 
     <script>
         const graphData = ${JSON.stringify(graphData)};
         const colors = ${JSON.stringify(colors)};
         
-        // Map edges to source/target for 3d-force-graph
         const gData = {
-            nodes: graphData.nodes.map(n => ({ id: n.id, name: n.name, type: n.type })),
+            nodes: graphData.nodes.map(n => ({ id: n.id, name: n.name, type: n.type, description: n.description })),
             links: graphData.edges.map(e => ({ source: e.source, target: e.target, type: e.type }))
         };
 
+        let Graph;
         const elem = document.getElementById('graph-container');
+        const sheet = document.getElementById('bottom-sheet');
+        
+        function closeSheet() {
+            sheet.classList.remove('open');
+        }
+
+        function resetCamera() {
+            if (Graph) Graph.zoomToFit(800, 50);
+        }
 
         try {
-            const Graph = ForceGraph3D()(elem)
+            Graph = ForceGraph3D()(elem)
                 .graphData(gData)
                 .nodeAutoColorBy('type')
                 .nodeColor(node => colors[node.type] || '#8888')
-                .nodeLabel(node => \`\${node.type}: \${node.name}\`)
+                .nodeLabel(() => '') // Disable hover tooltips for mobile
                 .linkColor(() => 'rgba(255,255,255,0.2)')
                 .linkWidth(0.5)
-                .backgroundColor('#0a0e27');
+                .backgroundColor('#0a0e27')
+                .onNodeClick(node => {
+                    // Center camera on node
+                    const distance = 100;
+                    const distRatio = 1 + distance/Math.hypot(node.x, node.y, node.z);
+                    Graph.cameraPosition(
+                        { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio },
+                        node, 
+                        1000
+                    );
 
-            // Fit to canvas on load
+                    // Open bottom sheet with rich metadata
+                    document.getElementById('bs-title').innerText = node.name;
+                    document.getElementById('bs-type').innerText = node.type;
+                    document.getElementById('bs-desc').innerText = node.description || "No metadata available.";
+                    sheet.classList.add('open');
+                })
+                .onBackgroundClick(closeSheet);
+
             Graph.onEngineStop(() => {
                 Graph.zoomToFit(400);
             });
         } catch (err) {
-            elem.innerHTML = '<div style="padding: 20px; color: #ff5555;">WebGL failed to initialize. Your viewer may not support 3D contexts.</div>';
+            elem.innerHTML = '<div style="padding: 20px; color: #ff5555;">WebGL failed to initialize.</div>';
         }
     </script>
 </body>
