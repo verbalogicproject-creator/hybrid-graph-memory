@@ -35,6 +35,7 @@ async function handleInteractiveMenu(engine: MemoryEngine) {
         { title: "📊 [ Memory Database Statistics ]", value: "stats" },
         { title: "🗺️ [ Generate AST Relations (.ctx) ]", value: "map:ast" },
         { title: "🩺 [ Memory Doctor (Ripple Decay Review) ]", value: "doctor" },
+        { title: "🧠 [ System 2 Worker (ULTRA Bridge) ]", value: "system2" },
         { title: "🎛️ [ Dashboard (Causal Memory & Receipts) ]", value: "dashboard" },
         { title: "🌐 [ Serve Visual Web Timeline ]", value: "serve" },
         { title: "🌌 [ Export 3D Visual Graph ]", value: "visualize" },
@@ -164,6 +165,24 @@ async function handleInteractiveMenu(engine: MemoryEngine) {
 
       case "doctor": {
         await runDoctor(engine);
+        break;
+      }
+
+      case "system2": {
+        console.log("\n🧠 Launching System 2 ULTRA Worker...");
+        const { spawnSync } = require("child_process");
+        const path = require("path");
+        const pythonScript = path.join(__dirname, "../src/python/ultra_bridge.py");
+        // We know the db is at the engine's config path
+        const dbPath = (engine as any).config.dbPath;
+        
+        const result = spawnSync("python3", [pythonScript, "--db", dbPath], { stdio: "inherit" });
+        if (result.status === 0) {
+          // Tell the engine to broadcast the newly inferred edges!
+          (engine as any).broadcastGraphUpdate?.();
+        } else {
+          console.error("System 2 process exited with error.");
+        }
         break;
       }
 
