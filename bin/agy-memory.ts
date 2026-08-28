@@ -199,7 +199,7 @@ async function handleInteractiveMenu(engine: MemoryEngine) {
       case "visualize": {
         const { GraphExporter } = require("../src/visualization/exporter");
         const exporter = new GraphExporter(engine);
-        const outputPath = require("path").resolve(process.cwd(), "graph_3d.html");
+        const ts = new Date().toISOString().replace(/[:.]/g, "-"); const outputPath = require("path").resolve(process.cwd(), `graph_3d_${ts}.html`);
         console.log(`\n🌌 Exporting 3D Graph Visualization to ${outputPath}...\n`);
         await exporter.exportToHtml(outputPath);
         console.log(`✅ Visualization exported successfully. Open file://${outputPath} in your browser.\n`);
@@ -343,7 +343,7 @@ async function main() {
       case "visualize": {
         const { GraphExporter } = require("../src/visualization/exporter");
         const exporter = new GraphExporter(engine);
-        const outputPath = require("path").resolve(process.cwd(), "graph_3d.html");
+        const ts = new Date().toISOString().replace(/[:.]/g, "-"); const outputPath = require("path").resolve(process.cwd(), `graph_3d_${ts}.html`);
         console.log(`\n🌌 Exporting 3D Graph Visualization to ${outputPath}...\n`);
         await exporter.exportToHtml(outputPath);
         console.log(`✅ Visualization exported successfully. Open file://${outputPath} in your browser.\n`);

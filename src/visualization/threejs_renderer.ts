@@ -174,8 +174,10 @@ export class ThreeJSGraphRenderer {
                 .nodeAutoColorBy('type')
                 .nodeColor(node => colors[node.type] || '#8888')
                 .nodeLabel(() => '') // Disable hover tooltips for mobile
-                .linkColor(() => 'rgba(255,255,255,0.2)')
-                .linkWidth(0.5)
+                .linkColor(link => link.type.includes('inferred') ? '#ff0055' : 'rgba(255,255,255,0.2)')
+                .linkWidth(link => link.type.includes('inferred') ? 2 : 0.5)
+                .linkDirectionalParticles(link => link.type.includes('inferred') ? 2 : 0)
+                .linkDirectionalParticleWidth(link => link.type.includes('inferred') ? 4 : 0)
                 .backgroundColor('#0a0e27')
                 .onNodeClick(node => {
                     // Center camera on node
@@ -323,8 +325,10 @@ export class ThreeJSGraphRenderer {
                         .nodeAutoColorBy('type')
                         .nodeColor(node => colors[node.type] || '#8888')
                         .nodeLabel(() => '')
-                        .linkColor(() => 'rgba(255,255,255,0.2)')
-                        .linkWidth(0.5)
+                        .linkColor(link => link.type.includes('inferred') ? '#ff0055' : 'rgba(255,255,255,0.2)')
+                        .linkWidth(link => link.type.includes('inferred') ? 2 : 0.5)
+                .linkDirectionalParticles(link => link.type.includes('inferred') ? 2 : 0)
+                .linkDirectionalParticleWidth(link => link.type.includes('inferred') ? 4 : 0)
                         .backgroundColor('#0a0e27')
                         .onNodeClick(node => {
                             const distance = 100;
