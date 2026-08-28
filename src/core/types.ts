@@ -43,6 +43,12 @@ export type AdmissionStatus =
 /** Retrieval stays inside one project unless the caller deliberately admits a federation. */
 export type RetrievalMode = "strict" | "federated";
 
+export type RelationOrigin =
+  | "declared"
+  | "observed_ast"
+  | "model_inferred"
+  | "legacy_unknown";
+
 /**
  * Caller-supplied admission for a deliberately bounded federated search.
  * This is retrieval policy and provenance, never an authority grant.
@@ -267,6 +273,11 @@ export interface MemoryRelation {
   workspace?: string;
   project?: string;
   module?: string;
+  origin?: RelationOrigin;
+  admissionStatus?: AdmissionStatus;
+  modelName?: string;
+  modelVersion?: string;
+  modelChecksum?: string;
   createdAt: number;
 }
 
@@ -409,6 +420,8 @@ export interface SearchOptions {
   federatedAdmission?: FederatedSearchAdmission;
   /** @deprecated Use retrievalMode: "federated" with federatedAdmission. */
   strictNamespace?: boolean;
+  /** Model-inferred and legacy-unknown edges are excluded by default. */
+  includeInferredRelations?: boolean;
 }
 
 export interface IndexStats {

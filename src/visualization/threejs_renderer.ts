@@ -7,6 +7,7 @@ export interface VisNode {
   type: string;
   description?: string;
   degree?: number;
+  val?: number;
 }
 
 export interface VisEdge {
@@ -20,8 +21,35 @@ export interface GraphData {
   edges: VisEdge[];
 }
 
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function safeJson(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+
+function deterministicColor(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `#${(hash >>> 0 & 0xffffff).toString(16).padStart(6, "0")}`;
+}
+
 export class ThreeJSGraphRenderer {
-  private generateColorPalette(nodeTypes: Set<string>): Record<string, string> {
+  public generateColorPalette(nodeTypes: Set<string>): Record<string, string> {
     const predefined: Record<string, string> = {
       claude_api_feature: "#2a9fd6",
       category: "#9b59b6",
@@ -46,18 +74,17 @@ export class ThreeJSGraphRenderer {
       if (predefined[nodeType]) {
         colors[nodeType] = predefined[nodeType];
       } else {
-        const randomColor = Math.floor(Math.random() * 16777215).toString(16);
-        colors[nodeType] = "#" + randomColor.padStart(6, "0");
+        colors[nodeType] = deterministicColor(nodeType);
       }
     }
     return colors;
   }
 
-  private generateLegendHtml(colors: Record<string, string>): string {
+  public generateLegendHtml(colors: Record<string, string>): string {
     const items = Object.entries(colors).sort((a, b) => a[0].localeCompare(b[0])).map(([nodeType, color]) => {
       return `<div class="legend-item">
         <div class="legend-color" style="background-color: ${color};"></div>
-        <span>${nodeType}</span>
+        <span>${escapeHtml(nodeType)}</span>
       </div>`;
     });
     return items.join("");
@@ -66,13 +93,14 @@ export class ThreeJSGraphRenderer {
   public generateHtml(graphData: GraphData, outputPath: string, title: string = "Knowledge Graph 3D"): string {
     const nodeTypes = new Set(graphData.nodes.map((n) => n.type || "unknown"));
     const colors = this.generateColorPalette(nodeTypes);
+    const safeTitle = escapeHtml(title);
 
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>${title}</title>
+    <title>${safeTitle}</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: sans-serif; background: #0a0e27; color: white; touch-action: none; }
         #graph-container { width: 100vw; height: 100vh; }
@@ -128,7 +156,7 @@ export class ThreeJSGraphRenderer {
     
     <div id="top-bar">
         <div class="panel">
-            <h2 style="margin: 0 0 5px 0; font-size: 14px; color: #2a9fd6;">${title}</h2>
+            <h2 style="margin: 0 0 5px 0; font-size: 14px; color: #2a9fd6;">${safeTitle}</h2>
             <div style="font-size: 11px; color: #aaa;">N: ${graphData.nodes.length} | E: ${graphData.edges.length}</div>
         </div>
         <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 10px;">
@@ -148,8 +176,8 @@ export class ThreeJSGraphRenderer {
     </div>
 
     <script>
-        const graphData = ${JSON.stringify(graphData)};
-        const colors = ${JSON.stringify(colors)};
+        const graphData = ${safeJson(graphData)};
+        const colors = ${safeJson(colors)};
         
         const gData = {
             nodes: graphData.nodes.map(n => ({ id: n.id, name: n.name, type: n.type, description: n.description })),
@@ -213,12 +241,13 @@ export class ThreeJSGraphRenderer {
   }
 
   public generateLiveHtml(title: string = "Knowledge Graph 3D"): string {
+    const safeTitle = escapeHtml(title);
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>${title} (Live Sync)</title>
+    <title>${safeTitle} (Live Sync)</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: sans-serif; background: #0a0e27; color: white; touch-action: none; }
         #graph-container { width: 100vw; height: 100vh; }
@@ -275,7 +304,7 @@ export class ThreeJSGraphRenderer {
     
     <div id="top-bar">
         <div class="panel">
-            <h2 style="margin: 0 0 5px 0; font-size: 14px; color: #2a9fd6;">${title}</h2>
+            <h2 style="margin: 0 0 5px 0; font-size: 14px; color: #2a9fd6;">${safeTitle}</h2>
             <div id="sync-status"><div class="pulsing-dot"></div> Live Sync Active</div>
             <div id="graph-stats" style="font-size: 11px; color: #aaa;">Connecting...</div>
         </div>

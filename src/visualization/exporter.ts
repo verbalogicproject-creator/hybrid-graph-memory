@@ -10,17 +10,10 @@ export class GraphExporter {
 
   public getGraphData(): { graphData: GraphData, colors: Record<string, string>, legendHtml: string } {
     const relations = this.engine.getAllRelations();
-    const fs = require("node:fs");
-    const path = require("node:path");
 
-    // Load Louvain Communities for topological colors
-    const communityMapPath = path.join((this.engine as any).config.dbPath, "../multi_agent_communities.json");
-    let nodeToCommunity = new Map<string, string>();
-    if (fs.existsSync(communityMapPath)) {
-      const comms = JSON.parse(fs.readFileSync(communityMapPath, "utf8"));
-      for (const [commId, nodes] of Object.entries(comms)) {
-        (nodes as string[]).forEach(n => nodeToCommunity.set(n, `Community ${commId}`));
-      }
+    const nodeToCommunity = new Map<string, string>();
+    for (const [community, nodes] of Object.entries(this.engine.getCommunityAssignments())) {
+      nodes.forEach((node) => nodeToCommunity.set(node, `Community ${community}`));
     }
 
     // Compute Degree Centrality for node sizing (gravity)
@@ -30,18 +23,7 @@ export class GraphExporter {
       degreeMap.set(rel.toId, (degreeMap.get(rel.toId) || 0) + 1);
     });
 
-    // Fetch chunk metadata for rich descriptions
-    const chunks = (this.engine as any).db.db.prepare("SELECT file_id, symbol_name, content FROM chunks").all();
-    const chunkMap = new Map<string, string>();
-    for (const chunk of chunks) {
-      if (chunk.symbol_name) {
-        chunkMap.set(chunk.symbol_name, chunk.content.substring(0, 300) + (chunk.content.length > 300 ? "..." : ""));
-      } else if (chunk.file_id) {
-        if (!chunkMap.has(chunk.file_id)) {
-          chunkMap.set(chunk.file_id, chunk.content.substring(0, 300) + (chunk.content.length > 300 ? "..." : ""));
-        }
-      }
-    }
+    const chunkMap = new Map(this.engine.getVisualizationDescriptions().map((item) => [item.id, item.description]));
 
     const nodesMap = new Map<string, VisNode>();
     const edges: VisEdge[] = [];
@@ -74,8 +56,8 @@ export class GraphExporter {
 
     const renderer = new ThreeJSGraphRenderer();
     const nodeTypes = new Set(graphData.nodes.map((n) => n.type || "unknown"));
-    const colors = (renderer as any).generateColorPalette(nodeTypes);
-    const legendHtml = (renderer as any).generateLegendHtml(colors);
+    const colors = renderer.generateColorPalette(nodeTypes);
+    const legendHtml = renderer.generateLegendHtml(colors);
 
     return { graphData, colors, legendHtml };
   }

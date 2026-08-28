@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 
 import prompts from "prompts";
+import fs from "node:fs";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { MemoryEngine } from "../src/core/engine";
 import { AstDependencyMapper } from "../src/ast/mapper";
 import { runDoctor } from "../src/cli/doctor";
@@ -16,11 +19,58 @@ function printBanner() {
 `);
 }
 
+function resolveUltraPython(): string {
+  const configured = process.env.ULTRA_PYTHON?.trim();
+  if (configured) return configured;
+  const isolated = "/root/.local/share/hybrid-graph-memory/ultra-venv/bin/python";
+  return fs.existsSync(isolated) ? isolated : "python3";
+}
+
+function resolveUltraBridgePath(): string {
+  const candidates = [
+    path.resolve(__dirname, "../src/python/ultra_bridge.py"),
+    path.resolve(__dirname, "../../src/python/ultra_bridge.py"),
+  ];
+  const bridge = candidates.find((candidate) => fs.existsSync(candidate));
+  if (!bridge) throw new Error("Packaged ULTRA bridge not found");
+  return bridge;
+}
+
+function runSystem2Worker(engine?: MemoryEngine, checkOnly = false): number {
+  const python = resolveUltraPython();
+  const args = [resolveUltraBridgePath()];
+  if (checkOnly) {
+    args.push("--check");
+  } else {
+    const config = (engine as any).config;
+    args.push(
+      "--db", config.dbPath,
+      "--workspace", config.workspace,
+      "--project", config.projectName,
+    );
+  }
+  const optional = [
+    ["--model-path", process.env.ULTRA_MODEL_PATH],
+    ["--model-version", process.env.ULTRA_MODEL_VERSION],
+    ["--model-checksum", process.env.ULTRA_MODEL_SHA256],
+  ] as const;
+  for (const [flag, value] of optional) {
+    if (value?.trim()) args.push(flag, value.trim());
+  }
+  const result = spawnSync(python, args, { stdio: "inherit" });
+  if (result.error) throw result.error;
+  const status = result.status ?? 1;
+  if (status === 0 && !checkOnly) (engine as any).broadcastGraphUpdate?.();
+  return status;
+}
+
 async function handleInteractiveMenu(engine: MemoryEngine) {
   printBanner();
 
   let keepRunning = true;
+  let dashboardHandle: ReturnType<typeof serveWebDashboard> | undefined;
 
+  try {
   while (keepRunning) {
     const response = await prompts({
       type: "select",
@@ -170,19 +220,8 @@ async function handleInteractiveMenu(engine: MemoryEngine) {
 
       case "system2": {
         console.log("\n🧠 Launching System 2 ULTRA Worker...");
-        const { spawnSync } = require("child_process");
-        const path = require("path");
-        const pythonScript = path.join(__dirname, "../src/python/ultra_bridge.py");
-        // We know the db is at the engine's config path
-        const dbPath = (engine as any).config.dbPath;
-        
-        const result = spawnSync("python3", [pythonScript, "--db", dbPath], { stdio: "inherit" });
-        if (result.status === 0) {
-          // Tell the engine to broadcast the newly inferred edges!
-          (engine as any).broadcastGraphUpdate?.();
-        } else {
-          console.error("System 2 process exited with error.");
-        }
+        const status = runSystem2Worker(engine);
+        if (status !== 0) console.error("System 2 process exited with error.");
         break;
       }
 
@@ -192,7 +231,12 @@ async function handleInteractiveMenu(engine: MemoryEngine) {
       }
 
       case "serve": {
-        serveWebDashboard(engine);
+        if (dashboardHandle) {
+          console.log("The web dashboard is already running.");
+        } else {
+          dashboardHandle = serveWebDashboard(engine);
+          await dashboardHandle.ready;
+        }
         break;
       }
 
@@ -207,19 +251,122 @@ async function handleInteractiveMenu(engine: MemoryEngine) {
       }
     }
   }
+  } finally {
+    await dashboardHandle?.close();
+  }
 }
 
-async function main() {
-  const args = process.argv.slice(2);
+const KNOWN_COMMANDS = new Set([
+  "search", "rag", "index", "ingest-text", "ingest-image", "graph", "stats",
+  "map:ast", "doctor", "dashboard", "serve", "visualize", "system2",
+]);
+
+function printUsage() {
+  console.log(`
+Antigravity Memory OS — Standalone CLI
+Usage:
+  agy-memory                         Launch interactive TUI menu
+  agy-memory search <q>              Perform hybrid vector + BM25 + GraphRAG search
+  agy-memory rag <prompt>            Generate a local RAG answer
+  agy-memory index                   Incrementally index the current workspace
+  agy-memory ingest-text <text>      Ingest a text memory
+  agy-memory ingest-image <path>     Ingest a PNG, JPEG, or WebP file
+  agy-memory stats                   Display database statistics
+  agy-memory graph                   List admitted observed/declared graph edges
+  agy-memory map:ast                 Generate AST relations
+  agy-memory system2 [--check]       Run or validate the review-gated ULTRA worker
+  agy-memory visualize               Export a 3D HTML graph visualization
+  agy-memory serve [port]            Serve the loopback-only web dashboard
+`);
+}
+
+function readSupportedImage(imagePath: string): string {
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(imagePath);
+  } catch {
+    throw new Error(`Image path does not exist: ${imagePath}`);
+  }
+  if (!stat.isFile()) throw new Error(`Image path is not a regular file: ${imagePath}`);
+  const maxImageBytes = 20 * 1024 * 1024;
+  if (stat.size <= 0 || stat.size > maxImageBytes) {
+    throw new Error(`Image must be between 1 byte and ${maxImageBytes} bytes.`);
+  }
+  const bytes = fs.readFileSync(imagePath);
+  const isPng = bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  const isJpeg = bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  const isWebp = bytes.length >= 12 && bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP";
+  if (!isPng && !isJpeg && !isWebp) {
+    throw new Error("Unsupported image format. Expected a PNG, JPEG, or WebP file.");
+  }
+  return bytes.toString("base64");
+}
+
+async function waitForTerminationSignal(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const done = () => {
+      process.off("SIGINT", done);
+      process.off("SIGTERM", done);
+      resolve();
+    };
+    process.once("SIGINT", done);
+    process.once("SIGTERM", done);
+  });
+}
+
+export async function runCli(
+  args = process.argv.slice(2),
+  engineFactory: () => MemoryEngine = () => new MemoryEngine()
+): Promise<number> {
   const command = args[0];
 
-  const engine = new MemoryEngine();
-  await engine.init();
+  if (command === "help" || command === "--help" || command === "-h") {
+    printUsage();
+    return 0;
+  }
+  if (command && !KNOWN_COMMANDS.has(command)) {
+    console.error(`Unknown command: ${command}`);
+    printUsage();
+    return 2;
+  }
+
+  let validatedImageBase64: string | undefined;
+  let dashboardPort = 3000;
+  if (command === "ingest-image") {
+    if (!args[1]) {
+      console.error("Usage: agy-memory ingest-image <image_path> [caption]");
+      return 2;
+    }
+    try {
+      validatedImageBase64 = readSupportedImage(args[1]);
+    } catch (error: any) {
+      console.error(error.message);
+      return 2;
+    }
+  }
+  if (command === "serve" && args[1] !== undefined) {
+    dashboardPort = Number(args[1]);
+    if (args.length > 2 || !Number.isInteger(dashboardPort) || dashboardPort < 1 || dashboardPort > 65535) {
+      console.error("Usage: agy-memory serve [port 1-65535]");
+      return 2;
+    }
+  }
+  if (command === "system2") {
+    if (args.length > 2 || (args[1] !== undefined && args[1] !== "--check")) {
+      console.error("Usage: agy-memory system2 [--check]");
+      return 2;
+    }
+    if (args[1] === "--check") return runSystem2Worker(undefined, true);
+  }
+
+  const engine = engineFactory();
+  let dashboardHandle: ReturnType<typeof serveWebDashboard> | undefined;
 
   try {
+    await engine.init();
     if (!command) {
       await handleInteractiveMenu(engine);
-      return;
+      return 0;
     }
 
     switch (command) {
@@ -227,7 +374,7 @@ async function main() {
         const query = args.slice(1).join(" ");
         if (!query) {
           console.error("Please provide a search query.");
-          process.exit(1);
+          return 2;
         }
         console.log(`\n🔍 Searching memory for: "${query}"...\n`);
         const results = await engine.search(query, { limit: 5 });
@@ -248,7 +395,7 @@ async function main() {
         const prompt = args.slice(1).join(" ");
         if (!prompt) {
           console.error("Please provide a prompt for local RAG generation.");
-          process.exit(1);
+          return 2;
         }
         console.log(`\n🤖 Executing Local On-Device RAG Generation for: "${prompt}"...\n`);
         const res = await engine.generateRAGAnswer(prompt);
@@ -273,7 +420,7 @@ async function main() {
         const text = args.slice(1).join(" ");
         if (!text) {
           console.error("Please provide text to ingest.");
-          process.exit(1);
+          return 2;
         }
         const title = text.slice(0, 50);
         const id = await engine.ingestText(text, title);
@@ -282,17 +429,8 @@ async function main() {
       }
 
       case "ingest-image": {
-        const imgPathOrB64 = args[1];
         const caption = args.slice(2).join(" ") || "Visual Screenshot";
-        if (!imgPathOrB64) {
-          console.error("Usage: agy-memory ingest-image <image_path_or_b64> [caption]");
-          process.exit(1);
-        }
-        let b64 = imgPathOrB64;
-        if (require("fs").existsSync(imgPathOrB64)) {
-          b64 = require("fs").readFileSync(imgPathOrB64).toString("base64");
-        }
-        const id = await engine.ingestImage(b64, caption);
+        const id = await engine.ingestImage(validatedImageBase64!, caption);
         console.log(`✅ Successfully ingested image memory: ${id}`);
         break;
       }
@@ -334,9 +472,16 @@ async function main() {
         break;
       }
 
+      case "system2": {
+        const status = runSystem2Worker(engine);
+        if (status !== 0) return status;
+        break;
+      }
+
       case "serve": {
-        serveWebDashboard(engine);
-        await new Promise(() => {}); // keep process alive
+        dashboardHandle = serveWebDashboard(engine, dashboardPort);
+        await dashboardHandle.ready;
+        await waitForTerminationSignal();
         break;
       }
 
@@ -350,29 +495,19 @@ async function main() {
         break;
       }
 
-      default: {
-        console.log(`
-Antigravity Memory OS — Standalone CLI
-Usage:
-  npm run memory                  Launch interactive TUI menu
-  npm run memory -- search <q>    Perform hybrid vector + BM25 + GraphRAG search
-  npm run memory -- rag <prompt>  Generate local on-device RAG answer (Qwen/Phi-4/Llama/Gemma)
-  npm run memory -- index         Incrementally index current repository workspace
-  npm run memory -- ingest-text   Ingest a text/markdown memory record
-  npm run memory -- ingest-image  Ingest a screenshot image vector
-  npm run memory -- stats         Display database statistics
-  npm run memory -- graph         List architectural GraphRAG relation edges
-  npm run memory -- map:ast       Generate AST GraphRAG relations
-  npm run memory -- visualize     Export a 3D HTML Graph visualization
-`);
-      }
     }
+    return 0;
+  } catch (error: any) {
+    console.error("CLI Error:", error?.message || String(error));
+    return 1;
   } finally {
+    await dashboardHandle?.close();
     engine.close();
   }
 }
 
-main().catch((err) => {
-  console.error("CLI Error:", err.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  runCli().then((code) => {
+    process.exitCode = code;
+  });
+}

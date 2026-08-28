@@ -2,10 +2,26 @@
   "name": "antigravity-memory-os",
   "version": "1.0.0",
   "description": "Fractal Memory — powered by Antigravity Memory OS.",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "require": "./dist/src/index.js",
+      "default": "./dist/src/index.js"
+    }
+  },
   "bin": {
-    "agy-memory": "./bin/agy-memory.ts"
+    "agy-memory": "./dist/bin/agy-memory.js"
+  },
+  "files": [
+    "dist/src/**",
+    "dist/bin/**",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
   },
   "scripts": {
     "memory": "tsx bin/agy-memory.ts",
@@ -13,10 +29,16 @@
     "search": "tsx bin/agy-memory.ts search",
     "rag": "tsx bin/agy-memory.ts rag",
     "stats": "tsx bin/agy-memory.ts stats",
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-ultra-bridge.mjs",
+    "typecheck": "tsc --noEmit",
+    "prepack": "npm run build",
     "start": "tsx bin/agy-memory.ts",
     "test": "tsx tests/audit_suite.ts",
     "test:alignment": "tsx tests/fractal_alignment.ts",
+    "test:production": "tsx tests/production_regressions.ts",
+    "test:science": "tsx tests/scientific_evaluator.ts",
+    "test:ultra": "python3 tests/ultra_bridge_contract.py",
+    "test:package": "tsx tests/package_smoke.ts",
     "mcp": "tsx src/mcp/server.ts"
   },
   "keywords": [
@@ -35,13 +57,13 @@
     "@google/genai": "^2.18.0",
     "node-cron": "^4.6.0",
     "prompts": "^2.4.2",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "typescript": "^5.7.3"
   },
   "devDependencies": {
     "@types/node": "^22.13.4",
     "@types/node-cron": "^3.0.11",
     "@types/prompts": "^2.4.9",
-    "tsx": "^4.23.12",
-    "typescript": "^5.7.3"
+    "tsx": "^4.23.12"
   }
 }

@@ -1,38 +1,25 @@
-# Empirical Topology Proof Transcript
+# Withdrawn historical transcript
 
-This is the terminal output from the mathematical evaluation harness (`src/evaluation/prove_topology.ts`) verifying the structural superiority of Louvain clustering over standard k-NN retrieval on the Antigravity Memory OS.
+**Status: WITHDRAWN — not evidence, not a benchmark result, and not a proof.**
 
-```text
-🧪 Initiating Empirical Topology Proof...
+An earlier version of this file reproduced output from the former
+`src/evaluation/prove_topology.ts` script. That script selected a maximum-degree
+hub instead of running vector k-nearest-neighbor retrieval, used incompatible
+graph-density semantics, did not measure relevance or noise, and printed a
+favorable conclusion regardless of evidence. Its output cannot support claims of
+retrieval superiority, semantic isolation, a manifold, a mathematical guarantee,
+or an LLM-quality improvement.
 
-🎯 Target Query Node: Ah (Degree: 829)
+The historical text remains available through Git history for auditability. It is
+removed from the active document because presenting invalid output beside the
+canonical research bundle would make the repository internally contradictory.
+The script now fails closed with exit status 2.
 
-==================================================
-🔍 TOPOLOGICAL RETRIEVAL (Louvain Community)
-==================================================
-Community ID: community_3
-Nodes Retrieved: 778
-Internal Edges (Structural Intactness): 778
-Edge Density: 0.1287%
-Noise Inclusion: 0% (Mathematically isolated manifold)
+The only active scientific contract is:
 
-==================================================
-🔍 STANDARD RAG RETRIEVAL (Simulated k-NN Hub Collapse)
-==================================================
-Simulating retrieval of 778 nodes using flat vector search...
-Nodes Retrieved: 778
-Internal Edges (Structural Hairball Density): 1433
-Edge Density: 0.2371%
+- `research/vector-topology-primitives/canonical/CLAIMS.md`
+- `research/vector-topology-primitives/canonical/PROTOCOL.md`
+- `research/vector-topology-primitives/canonical/evaluate.ts`
+- `research/vector-topology-primitives/canonical/paper.md`
 
-==================================================
-🏆 EMPIRICAL CONCLUSION
-==================================================
-Standard RAG destroyed -84.19% of the structural context.
-(By suffering from distance concentration, it pulled in a densely entangled noise hairball of 1433 unrelated edges across the codebase).
-
-Topological routing maintains a mathematically isolated manifold (778 edges), ensuring pristine semantic context boundaries.
-Proceed to LLM Orchestrator: APPROVED.
-```
-
-### Implications for a Future Academic Paper
-This mathematical falsification proves that standard vector similarity retrieval on high-dimensional text embeddings mathematically collapses into high-norm hubs, destroying context isolation. By substituting k-NN with higher-order graph clustering (Louvain / Hodge Laplacians) based on un-quantized FP16 ingestion edges, we mathematically guarantee that an LLM agent receives an isolated, zero-noise geometric manifold.
+Current result: **hybrid retrieval superiority is not demonstrated.**

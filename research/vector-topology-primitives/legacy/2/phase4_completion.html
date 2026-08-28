@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phase 4 - Multi-Agent Synthesis & Blueprint (Fact-Audited)</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- MathJax for LaTeX rendering -->
+    <script>
+        MathJax = {
+            tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+    
+    <!-- Mermaid.js for Architecture Flowcharts -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>mermaid.initialize({startOnLoad:true, theme: 'dark'});</script>
+
+    <!-- Highlight.js for Python syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+    </style>
+</head>
+<body class="text-slate-800 antialiased p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto">
+
+    <header class="mb-10 border-b border-slate-300 pb-6">
+        <h1 class="text-3xl font-bold text-slate-900 mb-2">Phase 4: Multi-Agent Synthesis & Master Blueprint</h1>
+        <p class="text-slate-600">Finalizing the research paper, the cluster-splitting orchestration logic, and the `.ctx` bootstrapper.</p>
+    </header>
+
+    <!-- SECTION 1: THE PAPER FINALE -->
+    <section class="mb-12">
+        <h2 class="text-2xl font-semibold mb-4 text-slate-800">1. Paper Conclusion & Evaluation Metrics</h2>
+        <div class="prose prose-slate max-w-none bg-white p-6 rounded-lg shadow-sm border border-slate-200">
+            <h3 class="text-xl font-bold mb-2">4. Evaluation Metrics</h3>
+            <p class="mb-4">To benchmark Graph-Augmented RAG against standard Euclidean retrieval, we propose three primary metrics, none of which have yet been measured &mdash; these are proposed evaluation criteria, not reported results:</p>
+            <ul>
+                <li><strong>Edge Survival Rate (ESR):</strong> The percentage of graph edge distance rankings that remain stable when the embedding model is quantized from FP16 to INT4. This is intended to measure the practical resilience of graph-based retrieval against quantization noise, pending actual measurement via the Distortion Tracker script.</li>
+                <li><strong>Cross-Cluster Resolution Score:</strong> Evaluated via a synthesizer LLM. When a query's retrieved context splits into two highly overlapping but distinct clusters, we propose measuring the presence of cross-domain hallucination and comparing parallel cluster-based routing against single-shot Euclidean retrieval.</li>
+                <li><strong>Path Divergence Metric:</strong> A proposed distance measure (e.g., Fr\u00e9chet distance) between the sequence of chunks retrieved via graph traversal versus via flat top-k vector search, to quantify how differently the two methods behave in practice.</li>
+            </ul>
+
+            <h3 class="text-xl font-bold mt-6 mb-2">5. Conclusion</h3>
+            <p class="mb-4">As AI architectures move toward heavily quantized, locally executed multi-agent systems, relying purely on flat Euclidean retrieval may become a practical limitation. Building on established Graph-RAG methodology, this project explores treating the graph structure as a complementary retrieval signal alongside vector similarity, rather than a replacement for it.</p>
+            <p class="mb-4">Furthermore, by combining graph-based retrieval with multi-agent orchestration &mdash; using distinct agents to independently process overlapping-but-distinct context clusters in parallel &mdash; the design aims to reduce cross-domain hallucination at the edge. This is a proposed architecture whose benefits remain to be empirically validated; no results are reported here, and no guarantee of improved fidelity should be assumed until benchmarked against the metrics above.</p>
+        </div>
+    </section>
+
+    <!-- SECTION 2: ARCHITECTURE DIAGRAM -->
+    <section class="mb-12">
+        <h2 class="text-2xl font-semibold mb-4 text-slate-800">2. System Architecture Pipeline</h2>
+        <div class="bg-[#1e1e2e] p-6 rounded-lg shadow-sm border border-slate-700 flex justify-center">
+            <div class="mermaid">
+                graph TD
+                    A[User Query] --> B(Vector Embedding)
+                    B --> C{Cluster Split Detection}
+                    
+                    C -- Single Cluster --> D[Graph Router]
+                    C -- Overlapping Clusters --> E[Cluster Splitter]
+                    
+                    D --> F[Trace Single Graph Path]
+                    
+                    E --> G[Fork A: Agent 1 Phi-4]
+                    E --> H[Fork B: Agent 2 Phi-4]
+                    
+                    G --> I[Synthesizer Agent Qwen-2.5]
+                    H --> I
+                    
+                    F --> I
+                    
+                    I --> J[Final Context-OS Output]
+                    
+                    style A fill:#3b82f6,stroke:#fff,stroke-width:2px,color:#fff
+                    style I fill:#10b981,stroke:#fff,stroke-width:2px,color:#fff
+                    style E fill:#ef4444,stroke:#fff,stroke-width:2px,color:#fff
+            </div>
+        </div>
+    </section>
+
+    <!-- SECTION 3: MULTI-AGENT CLUSTER ROUTING LOGIC -->
+    <section class="mb-12">
+        <h2 class="text-2xl font-semibold mb-4 text-slate-800">3. Implementation: Multi-Agent Cluster Detection</h2>
+        <p class="mb-4 text-slate-700">This Python script lives in <code>04_orchestration/query_parser.py</code>. It analyzes the retrieved graph nodes to detect if the context has split into two or more distinct communities and triggers the multi-agent council to process them separately.</p>
+        
+        <div class="rounded-lg overflow-hidden shadow-sm border border-slate-700 bg-[#282c34]">
+<pre><code class="language-python">import networkx as nx
+from networkx.algorithms import community
+from typing import List, Dict
+
+class ContextClusterDetector:
+    def __init__(self, knowledge_graph: nx.Graph):
+        self.graph = knowledge_graph
+
+    def detect_clusters(self, retrieved_node_ids: List[str]) -> Dict[str, Any]:
+        """
+        Analyzes the retrieved graph nodes to determine if they form a single
+        densely-connected community, or if they split into multiple distinct
+        communities (overlapping-but-distinct context clusters).
+        """
+        # Create a subgraph of only the retrieved context nodes
+        subgraph = self.graph.subgraph(retrieved_node_ids)
+        
+        # Use Louvain community detection to find dense clusters within the subgraph
+        # If the query is straightforward, this returns 1 community.
+        # If the query context is split, it returns 2+ distinct communities.
+        communities = list(community.louvain_communities(subgraph, weight='weight'))
+        
+        if len(communities) > 1:
+            return {
+                "is_split": True,
+                "forks": [list(c) for c in communities],
+                "action": "TRIGGER_CLUSTER_SPLIT"
+            }
+        
+        return {
+            "is_split": False,
+            "forks": [retrieved_node_ids],
+            "action": "STANDARD_SYNTHESIS"
+        }
+
+    def execute_cluster_split(self, agent_council, cluster_data: Dict):
+        """
+        Routes the distinct context clusters to separate, parallel Phi-4-mini agents.
+        """
+        parallel_results = []
+        
+        for index, fork_nodes in enumerate(cluster_data["forks"]):
+            # Extract the raw text for this specific cluster
+            fork_context = [self.graph.nodes[n]['text'] for n in fork_nodes]
+            
+            # Spin up a parallel agent thread for this specific context cluster
+            agent_response = agent_council.dispatch(
+                agent_model="phi-4-mini",
+                role=f"Cluster Specialist {index}",
+                context=fork_context
+            )
+            parallel_results.append(agent_response)
+            
+        return parallel_results
+</code></pre>
+        </div>
+    </section>
+
+    <!-- SECTION 4: MASTER .ctx BOOTSTRAPPER -->
+    <section class="mb-12">
+        <h2 class="text-2xl font-semibold mb-4 text-slate-800">4. Master `.ctx` Architecture Blueprint</h2>
+        <p class="mb-4 text-slate-700">Save this block as <code>topological-rag.ctx</code>. This is the master blueprint you will feed into your agentic orchestration tool to instantly scaffold the complete project on your device.</p>
+
+        <div class="bg-slate-900 text-yellow-400 p-6 rounded-lg shadow-sm border border-slate-700 font-mono text-sm overflow-x-auto whitespace-pre-wrap">
+::CTX_START::
+version: 1.0
+project: context-os-topological-rag
+context: "Implementation of Graph-Augmented RAG with multi-agent cluster-splitting for 4-bit edge environments."
+
+[[ARCHITECTURE]]
+-> 01_data_ingest
+  - graph_builder.py (NetworkX simplicial complex generator)
+-> 02_embedding_layer
+  - vector_store.py (ChromaDB L2 mapping)
+-> 03_mesh_layer
+  - graph_router.py (Dijkstra shortest path over edge weights)
+-> 04_orchestration
+  - agent_council.py (Parallel Phi-4-mini dispatcher)
+  - query_parser.py (Louvain community cluster detection)
+-> 05_quantization_tests
+  - distortion_tracker.py (Procrustes disparity matrix)
+
+[[DEPENDENCIES]]
+- networkx
+- numpy
+- scipy
+- scikit-learn
+- chromadb
+- llama-cpp-python (with OpenCL/Adreno acceleration)
+
+[[EXECUTION_HOOKS]]
+> INIT: "Build the directory tree and install dependencies."
+> BUILD_GRAPH: "Run graph_builder.py using FP16 precision."
+> TEST_DISTORTION: "Run distortion_tracker.py comparing FP16 against Q4_K_M."
+> START_COUNCIL: "Initialize agent_council.py listening for cluster-split events."
+
+::CTX_END::
+        </div>
+    </section>
+
+    <script>hljs.highlightAll();</script>
+</body>
+</html>

@@ -48,6 +48,8 @@ export class CtxChunker {
           source: filepath,
           weight,
           confidence: 1.0,
+          origin: "declared",
+          admissionStatus: "admitted",
           createdAt: now,
         });
       }

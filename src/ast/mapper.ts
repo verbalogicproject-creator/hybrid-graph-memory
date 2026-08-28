@@ -249,6 +249,8 @@ export class AstDependencyMapper {
         workspace,
         project,
         module,
+        origin: "observed_ast",
+        admissionStatus: "admitted",
         createdAt: now,
       });
     };

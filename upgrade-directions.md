@@ -1,5 +1,9 @@
 # Future Evolution of the Hybrid Graph Memory System
 
+> **Historical roadmap — non-evidence.** Every item below is a proposed direction,
+> not current behavior or a performance, causality, safety, or autonomy claim.
+> `README.md` and the canonical claim ledger define the active evidence boundary.
+
 This document outlines five major evolutionary paths for the Antigravity Memory OS, moving it from a passive code-indexer to a generalized, active semantic memory engine.
 
 ## 1. The Multi-Agent "Hive Mind" (Shared Context)

@@ -2,4 +2,10 @@
 node_modules/
 dist/
 .env*
-graph_3d.html\nthree.min.js
+graph_3d*.html
+three.min.js
+__pycache__/
+*.pyc
+*.db
+*.db-shm
+*.db-wal

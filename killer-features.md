@@ -1,5 +1,10 @@
 # Killer Features of the Evolved Memory OS
 
+> **Historical product-vision note — non-evidence.** The scenarios below are
+> speculative examples, not implemented behavior, forecasts, safety guarantees,
+> or measured outcomes. Percentages, automation outcomes, and timelines are
+> illustrative only. `README.md` and the canonical claim ledger take precedence.
+
 When the core primitives of the Hybrid Graph Memory are combined, three "Killer Features" emerge that redefine how engineering organizations operate.
 
 ## Killer Feature 1: The "Butterfly Effect" Predictor 

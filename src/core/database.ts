@@ -25,6 +25,62 @@ export class MemoryDatabase {
     this.initSchema();
   }
 
+  runInTransaction<T>(operation: () => T): T {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const result = operation();
+      this.db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      try {
+        this.db.exec("ROLLBACK");
+      } catch {
+        // Preserve the original failure; rollback diagnostics must not mask it.
+      }
+      throw error;
+    }
+  }
+
+  private parseStoredJson<T>(
+    table: "chunks" | "memories",
+    row: any,
+    column: string,
+    raw: unknown,
+    fallback: T
+  ): T {
+    if (raw === null || raw === undefined || raw === "") return fallback;
+    try {
+      return JSON.parse(String(raw)) as T;
+    } catch {
+      const reason = `Malformed stored JSON in ${column}`;
+      this.db.prepare(
+        `UPDATE ${table} SET admission_status = 'quarantined', quarantine_reason = ? WHERE id = ?`
+      ).run(reason, row.id);
+      row.admissionStatus = "quarantined";
+      row.quarantineReason = reason;
+      return fallback;
+    }
+  }
+
+  private parseRelationMetadata(row: any): Record<string, unknown> | undefined {
+    if (!row.metadata) return undefined;
+    try {
+      return JSON.parse(String(row.metadata));
+    } catch {
+      console.warn(`[memory] Relation ${row.id} has malformed metadata and was ignored.`);
+      return undefined;
+    }
+  }
+
+  private prepareStoredRow(table: "chunks" | "memories", row: any): any {
+    row.triggerTags = this.parseStoredJson(table, row, "trigger_tags", row.triggerTags, []);
+    row.assetSpec = this.parseStoredJson(table, row, "asset_spec", row.assetSpec, undefined);
+    if (table === "memories") {
+      row.metadata = this.parseStoredJson(table, row, "metadata", row.metadata, undefined);
+    }
+    return row;
+  }
+
   private initSchema() {
     this.db.exec("PRAGMA foreign_keys = ON;");
     this.db.exec("PRAGMA journal_mode = WAL;");
@@ -306,6 +362,11 @@ export class MemoryDatabase {
         weight REAL NOT NULL DEFAULT 1.0,
         confidence REAL DEFAULT 1.0,
         metadata TEXT,
+        origin TEXT NOT NULL DEFAULT 'legacy_unknown',
+        admission_status TEXT NOT NULL DEFAULT 'candidate',
+        model_name TEXT,
+        model_version TEXT,
+        model_checksum TEXT,
         created_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_rel_from ON relations(from_id);
@@ -321,6 +382,21 @@ export class MemoryDatabase {
     } catch (e) {}
     try {
       this.db.exec("ALTER TABLE relations ADD COLUMN module TEXT DEFAULT 'root';");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE relations ADD COLUMN origin TEXT NOT NULL DEFAULT 'legacy_unknown';");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE relations ADD COLUMN admission_status TEXT NOT NULL DEFAULT 'candidate';");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE relations ADD COLUMN model_name TEXT;");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE relations ADD COLUMN model_version TEXT;");
+    } catch (e) {}
+    try {
+      this.db.exec("ALTER TABLE relations ADD COLUMN model_checksum TEXT;");
     } catch (e) {}
     try {
       this.db.exec("CREATE INDEX IF NOT EXISTS idx_rel_ns ON relations(workspace, project);");
@@ -516,7 +592,7 @@ export class MemoryDatabase {
 
     const rows = stmt.all(fileId) as any[];
     return rows.map((r) => ({
-      ...r,
+      ...this.prepareStoredRow("chunks", r),
       providerType:
         r.providerType ||
         (r.embeddingModel?.includes("gemini") ? "cloud" : "local_llama"),
@@ -524,8 +600,8 @@ export class MemoryDatabase {
       project: r.project || "default",
       module: r.module || "root",
       admissionStatus: r.admissionStatus || "admitted",
-      triggerTags: r.triggerTags ? JSON.parse(r.triggerTags) : [],
-      assetSpec: r.assetSpec ? JSON.parse(r.assetSpec) : undefined,
+      triggerTags: r.triggerTags,
+      assetSpec: r.assetSpec,
       lastAccessedAt: r.lastAccessedAt || 0,
       accessCount: r.accessCount || 0,
       embedding: r.embedding ? bufferToFloat32(r.embedding) : undefined,
@@ -562,7 +638,7 @@ export class MemoryDatabase {
 
     const rows = stmt.all() as any[];
     return rows.map((r) => ({
-      ...r,
+      ...this.prepareStoredRow("chunks", r),
       providerType:
         r.providerType ||
         (r.embeddingModel?.includes("gemini") ? "cloud" : "local_llama"),
@@ -570,8 +646,8 @@ export class MemoryDatabase {
       project: r.project || "default",
       module: r.module || "root",
       admissionStatus: r.admissionStatus || "admitted",
-      triggerTags: r.triggerTags ? JSON.parse(r.triggerTags) : [],
-      assetSpec: r.assetSpec ? JSON.parse(r.assetSpec) : undefined,
+      triggerTags: r.triggerTags,
+      assetSpec: r.assetSpec,
       lastAccessedAt: r.lastAccessedAt || 0,
       accessCount: r.accessCount || 0,
       embedding: r.embedding ? bufferToFloat32(r.embedding) : undefined,
@@ -660,7 +736,7 @@ export class MemoryDatabase {
 
     const rows = stmt.all() as any[];
     return rows.map((r) => ({
-      ...r,
+      ...this.prepareStoredRow("memories", r),
       providerType:
         r.providerType ||
         (r.embeddingModel?.includes("gemini") ? "cloud" : "local_llama"),
@@ -668,11 +744,11 @@ export class MemoryDatabase {
       project: r.project || "default",
       module: r.module || "root",
       admissionStatus: r.admissionStatus || "admitted",
-      triggerTags: r.triggerTags ? JSON.parse(r.triggerTags) : [],
-      assetSpec: r.assetSpec ? JSON.parse(r.assetSpec) : undefined,
+      triggerTags: r.triggerTags,
+      assetSpec: r.assetSpec,
       lastAccessedAt: r.lastAccessedAt || 0,
       accessCount: r.accessCount || 0,
-      metadata: r.metadata ? JSON.parse(r.metadata) : undefined,
+      metadata: r.metadata,
       embedding: r.embedding ? bufferToFloat32(r.embedding) : undefined,
     }));
   }
@@ -700,16 +776,16 @@ export class MemoryDatabase {
     const r = stmt.get(id) as any;
     if (!r) return null;
     return {
-      ...r,
+      ...this.prepareStoredRow("memories", r),
       workspace: r.workspace || "default",
       project: r.project || "default",
       module: r.module || "root",
       admissionStatus: r.admissionStatus || "admitted",
-      triggerTags: r.triggerTags ? JSON.parse(r.triggerTags) : [],
-      assetSpec: r.assetSpec ? JSON.parse(r.assetSpec) : undefined,
+      triggerTags: r.triggerTags,
+      assetSpec: r.assetSpec,
       lastAccessedAt: r.lastAccessedAt || 0,
       accessCount: r.accessCount || 0,
-      metadata: r.metadata ? JSON.parse(r.metadata) : undefined,
+      metadata: r.metadata,
       embedding: r.embedding ? bufferToFloat32(r.embedding) : undefined,
     };
   }
@@ -720,22 +796,34 @@ export class MemoryDatabase {
     reviewedBy: string,
     reasonOrNotes?: string
   ): boolean {
-    try {
-      const now = Date.now();
-      const stmt = this.db.prepare(`
-        UPDATE memories
-        SET admission_status = ?,
-            reviewed_by = ?,
-            reviewed_at = ?,
-            quarantine_reason = ?,
-            updated_at = ?
-        WHERE id = ?
-      `);
-      stmt.run(status, reviewedBy, now, reasonOrNotes || null, now, id);
-      return true;
-    } catch (e) {
+    if (!reviewedBy.trim()) return false;
+    if ((status === "quarantined" || status === "rejected") && !reasonOrNotes?.trim()) {
       return false;
     }
+    const now = Date.now();
+    const allowedCurrentStates = status === "admitted"
+      ? "AND admission_status = 'candidate'"
+      : "AND admission_status IN ('candidate', 'admitted')";
+    const stmt = this.db.prepare(`
+      UPDATE memories
+      SET admission_status = ?,
+          reviewed_by = ?,
+          reviewed_at = ?,
+          quarantine_reason = ?,
+          updated_at = ?
+      WHERE id = ?
+        AND memory_type IN ('prompt', 'workflow', 'skill', 'rule')
+        ${allowedCurrentStates}
+    `);
+    const result = stmt.run(
+      status,
+      reviewedBy.trim(),
+      now,
+      reasonOrNotes?.trim() || null,
+      now,
+      id
+    );
+    return result.changes === 1;
   }
 
   listOperationalAssets(options?: {
@@ -780,16 +868,16 @@ export class MemoryDatabase {
     const stmt = this.db.prepare(query);
     const rows = (params.length > 0 ? stmt.all(...params) : stmt.all()) as any[];
     return rows.map((r) => ({
-      ...r,
+      ...this.prepareStoredRow("memories", r),
       workspace: r.workspace || "default",
       project: r.project || "default",
       module: r.module || "root",
       admissionStatus: r.admissionStatus || "admitted",
-      triggerTags: r.triggerTags ? JSON.parse(r.triggerTags) : [],
-      assetSpec: r.assetSpec ? JSON.parse(r.assetSpec) : undefined,
+      triggerTags: r.triggerTags,
+      assetSpec: r.assetSpec,
       lastAccessedAt: r.lastAccessedAt || 0,
       accessCount: r.accessCount || 0,
-      metadata: r.metadata ? JSON.parse(r.metadata) : undefined,
+      metadata: r.metadata,
       embedding: r.embedding ? bufferToFloat32(r.embedding) : undefined,
     }));
   }
@@ -846,16 +934,16 @@ export class MemoryDatabase {
     const stmt = this.db.prepare(query);
     const rows = stmt.all(...params) as any[];
     return rows.map((r) => ({
-      ...r,
+      ...this.prepareStoredRow("memories", r),
       workspace: r.workspace || "default",
       project: r.project || "default",
       module: r.module || "root",
       admissionStatus: r.admissionStatus || "admitted",
-      triggerTags: r.triggerTags ? JSON.parse(r.triggerTags) : [],
-      assetSpec: r.assetSpec ? JSON.parse(r.assetSpec) : undefined,
+      triggerTags: r.triggerTags,
+      assetSpec: r.assetSpec,
       lastAccessedAt: r.lastAccessedAt || 0,
       accessCount: r.accessCount || 0,
-      metadata: r.metadata ? JSON.parse(r.metadata) : undefined,
+      metadata: r.metadata,
       embedding: r.embedding ? bufferToFloat32(r.embedding) : undefined,
     }));
   }
@@ -919,8 +1007,9 @@ export class MemoryDatabase {
     if (!raw) return null;
     try {
       return JSON.parse(raw);
-    } catch (e) {
-      return null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Corrupt index_manifest metadata: ${message}`);
     }
   }
 
@@ -928,8 +1017,9 @@ export class MemoryDatabase {
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO relations (
         id, from_id, relation, to_id, source, weight, confidence, metadata,
-        workspace, project, module, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        workspace, project, module, origin, admission_status,
+        model_name, model_version, model_checksum, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -944,19 +1034,35 @@ export class MemoryDatabase {
       relation.workspace || "default",
       relation.project || "default",
       relation.module || "root",
+      relation.origin || "legacy_unknown",
+      relation.admissionStatus || "candidate",
+      relation.modelName || null,
+      relation.modelVersion || null,
+      relation.modelChecksum || null,
       relation.createdAt
     );
   }
 
-  getAllRelations(options?: { workspace?: string; project?: string }): MemoryRelation[] {
+  getAllRelations(options?: {
+    workspace?: string;
+    project?: string;
+    includeInferredRelations?: boolean;
+  }): MemoryRelation[] {
     let query = `
       SELECT id, from_id as fromId, relation, to_id as toId,
              source, weight, confidence, metadata,
-             workspace, project, module, created_at as createdAt
+             workspace, project, module, origin,
+             admission_status as admissionStatus,
+             model_name as modelName, model_version as modelVersion,
+             model_checksum as modelChecksum, created_at as createdAt
       FROM relations
     `;
     const params: any[] = [];
     const conditions: string[] = [];
+    if (!options?.includeInferredRelations) {
+      conditions.push("origin IN ('declared', 'observed_ast')");
+      conditions.push("admission_status = 'admitted'");
+    }
     if (options?.workspace) {
       conditions.push("workspace = ?");
       params.push(options.workspace);
@@ -975,18 +1081,28 @@ export class MemoryDatabase {
       workspace: r.workspace || "default",
       project: r.project || "default",
       module: r.module || "root",
-      metadata: r.metadata ? JSON.parse(r.metadata) : undefined,
+      metadata: this.parseRelationMetadata(r),
     }));
   }
 
-  getRelationsForNode(nodeId: string, options?: { workspace?: string; project?: string }): MemoryRelation[] {
+  getRelationsForNode(nodeId: string, options?: {
+    workspace?: string;
+    project?: string;
+    includeInferredRelations?: boolean;
+  }): MemoryRelation[] {
     let query = `
       SELECT id, from_id as fromId, relation, to_id as toId,
              source, weight, confidence, metadata,
-             workspace, project, module, created_at as createdAt
+             workspace, project, module, origin,
+             admission_status as admissionStatus,
+             model_name as modelName, model_version as modelVersion,
+             model_checksum as modelChecksum, created_at as createdAt
       FROM relations WHERE (from_id = ? OR to_id = ?)
     `;
     const params: any[] = [nodeId, nodeId];
+    if (!options?.includeInferredRelations) {
+      query += " AND origin IN ('declared', 'observed_ast') AND admission_status = 'admitted'";
+    }
     if (options?.workspace) {
       query += " AND workspace = ?";
       params.push(options.workspace);
@@ -1002,7 +1118,7 @@ export class MemoryDatabase {
       workspace: r.workspace || "default",
       project: r.project || "default",
       module: r.module || "root",
-      metadata: r.metadata ? JSON.parse(r.metadata) : undefined,
+      metadata: this.parseRelationMetadata(r),
     }));
   }
 
@@ -1032,6 +1148,21 @@ export class MemoryDatabase {
       lastIndexedAt,
       dbSizeBytes: 0,
     };
+  }
+
+  getVisualizationDescriptions(): Array<{ id: string; description: string }> {
+    const rows = this.db.prepare(`
+      SELECT file_id as fileId, symbol_name as symbolName, substr(content, 1, 300) as description
+      FROM chunks
+      WHERE admission_status = 'admitted'
+      ORDER BY id
+    `).all() as any[];
+    const descriptions = new Map<string, string>();
+    for (const row of rows) {
+      const id = row.symbolName || row.fileId;
+      if (id && !descriptions.has(id)) descriptions.set(id, String(row.description || ""));
+    }
+    return Array.from(descriptions, ([id, description]) => ({ id, description }));
   }
 
   close() {
@@ -1076,6 +1207,10 @@ export class MemoryDatabase {
    * Attaches the global hive SQLite file, scrubs PII/Secrets, and writes heuristic records.
    */
   consolidateToGlobalHive(): { scrubbed: number } {
+    throw new Error(
+      "Global-hive export is disabled until an allowlisted export schema and adversarial privacy suite are approved."
+    );
+    /* Historical unsafe implementation retained temporarily for migration reference.
     const os = require("os");
     const globalHiveDir = path.join(os.homedir(), ".antigravity");
     if (!fs.existsSync(globalHiveDir)) {
@@ -1135,7 +1270,7 @@ export class MemoryDatabase {
 
     this.db.exec(`DETACH DATABASE global_hive`);
     
-    return { scrubbed: scrubbedCount };
+    return { scrubbed: scrubbedCount }; */
   }
 
   getReceiptsByIncidentType(incidentType: string): import('./types').ReceiptRecord[] {

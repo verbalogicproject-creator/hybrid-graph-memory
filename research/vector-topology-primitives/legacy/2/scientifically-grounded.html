@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phase 5 - Scientific Grounding (Fact-Audited)</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- D3.js for Persistence Diagram Visualization -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+
+    <!-- Highlight.js for Python syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        .viz-container { border: 1px solid #e2e8f0; border-radius: 0.5rem; background: #fff; overflow: hidden; position: relative; }
+        .bib-card { transition: transform 0.2s, box-shadow 0.2s; }
+        .bib-card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
+    </style>
+</head>
+<body class="text-slate-800 antialiased p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto">
+
+    <header class="mb-10 border-b border-slate-300 pb-6">
+        <h1 class="text-3xl font-bold text-slate-900 mb-2">Phase 5: Scientific Grounding & Literature</h1>
+        <p class="text-slate-600">The annotated bibliography grounding the Graph-Augmented RAG methodology, with citation accuracy verified against source papers.</p>
+        <div class="mt-3 bg-amber-50 border border-amber-300 text-amber-900 text-sm rounded-lg p-3">
+            <strong>Audit note:</strong> One citation below (Dettmers et al.) was previously used to support a claim it does not make. The knot-theory citation is now framed accurately as unrelated to text retrieval, retained only as background context on ML-assisted mathematics.
+        </div>
+    </header>
+
+    <!-- SECTION 1: ANNOTATED BIBLIOGRAPHY -->
+    <section class="mb-12">
+        <h2 class="text-2xl font-semibold mb-4 text-slate-800">1. Literature Review: The Foundations</h2>
+        <p class="mb-6 text-slate-700">These are the primary academic sources relevant to this project's individual components (manifold hypothesis, TDA, and Graph-RAG). Each entry below states what the source actually demonstrates, distinct from how it is being used architecturally in this project.</p>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            
+            <!-- Citation 1 -->
+            <div class="bib-card bg-white p-5 rounded-lg border border-slate-200">
+                <div class="text-xs font-bold text-blue-600 mb-1">GRAPH RAG / MESHING</div>
+                <h3 class="text-lg font-bold leading-tight mb-2">From Local to Global: A Graph RAG Approach to Query-Focused Summarization</h3>
+                <p class="text-sm text-slate-500 mb-3">Edge, D., et al. (Microsoft Research, 2024)</p>
+                <p class="text-sm text-slate-700"><strong>What it actually shows:</strong> This is the foundational Microsoft paper formalizing Graph-RAG for query-focused summarization. It establishes graph-structured retrieval as a real, published baseline. <strong>Use with care:</strong> the paper does not itself propose or validate a "geodesic mesh" interpretation &mdash; that framing is this project's own extension and should be labeled as such, not attributed to the source.</p>
+            </div>
+
+            <!-- Citation 2 -->
+            <div class="bib-card bg-white p-5 rounded-lg border border-slate-200">
+                <div class="text-xs font-bold text-slate-500 mb-1">BACKGROUND ONLY — NOT DIRECTLY APPLICABLE</div>
+                <h3 class="text-lg font-bold leading-tight mb-2">Advancing mathematics by guiding human intuition with AI</h3>
+                <p class="text-sm text-slate-500 mb-3">Davies, A., Juhász, A., Lackenby, M., et al. (Nature, 2021)</p>
+                <p class="text-sm text-slate-700"><strong>What it actually shows:</strong> A real, published paper in which a neural network flagged a correlation between a small set of hyperbolic-geometry parameters and a classical knot invariant (the signature), which mathematicians then used to manually formulate and prove a new theorem. <strong>Correction:</strong> this paper concerns pure knot theory and hyperbolic 3-manifolds; it says nothing about text embeddings, retrieval, or RAG. It should not be cited to "legitimize" combining knot theory with neural embeddings for retrieval &mdash; no such connection exists in the source, and the project's own knot-theory naming (Reidemeister moves, entanglement, etc.) has been removed elsewhere in this document set for this reason.</p>
+            </div>
+
+            <!-- Citation 3 -->
+            <div class="bib-card bg-white p-5 rounded-lg border border-slate-200">
+                <div class="text-xs font-bold text-purple-600 mb-1">TOPOLOGICAL DATA ANALYSIS</div>
+                <h3 class="text-lg font-bold leading-tight mb-2">Topology of Data</h3>
+                <p class="text-sm text-slate-500 mb-3">Carlsson, G. (Bulletin of the American Mathematical Society, 2009)</p>
+                <p class="text-sm text-slate-700"><strong>What it actually shows:</strong> A foundational, widely-cited survey establishing persistent homology as a rigorous method for inferring topological structure (connected components, loops, voids) from discrete point clouds by tracking feature persistence across distance scales. This is directly and accurately applicable to using persistent homology on embedding point clouds.</p>
+            </div>
+
+            <!-- Citation 4 -->
+            <div class="bib-card bg-white p-5 rounded-lg border border-slate-200">
+                <div class="text-xs font-bold text-rose-600 mb-1">QUANTIZATION — CITATION CORRECTED</div>
+                <h3 class="text-lg font-bold leading-tight mb-2">LLM.int8(): 8-bit Matrix Multiplication for Transformers at Scale</h3>
+                <p class="text-sm text-slate-500 mb-3">Dettmers, T., et al. (NeurIPS, 2022)</p>
+                <p class="text-sm text-slate-700"><strong>What it actually shows:</strong> This paper studies <em>8-bit</em> quantization and shows that isolating a small number of outlier feature dimensions into higher precision (mixed-precision decomposition) preserves model performance without measurable degradation. <strong>Correction:</strong> it does not measure or claim severe distortion under 4-bit (INT4/GGUF) quantization, and should not be cited as proof that "4-bit edge models cause severe manifold distortion." That specific claim remains an untested hypothesis for this project, pending the Distortion Tracker experiment described in Phase 3.</p>
+            </div>
+
+        </div>
+    </section>
+
+    <!-- SECTION 2: TDA PERSISTENCE DIAGRAM (INTERACTIVE) -->
+    <section class="mb-12">
+        <h2 class="text-2xl font-semibold mb-4 text-slate-800">2. Interactive Proof: Persistent Homology</h2>
+        <p class="mb-4 text-slate-700">Topological Data Analysis (TDA) can be used to estimate a natural "scale" for grouping embeddings. The visual below is an illustrative <strong>Persistence Diagram</strong> using synthetic data (not measurements from your actual corpus). It shows how such diagrams track "Birth" (when a feature like a loop appears as the search radius expands) and "Death" (when it fills in). Points far from the diagonal indicate more persistent, likely-meaningful structure; points near the diagonal typically indicate noise &mdash; this is a standard, well-established TDA heuristic.</p>
+        
+        <div class="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
+            <div class="flex justify-between items-end mb-4">
+                <div>
+                    <h3 class="text-lg font-bold">Persistence Diagram (H0 and H1 Features)</h3>
+                    <p class="text-sm text-slate-600">Drag the slider to filter out "topological noise" (points close to the diagonal line).</p>
+                </div>
+                <div class="flex flex-col items-end">
+                    <label for="noise-filter" class="text-xs font-bold text-slate-500 mb-1">Noise Filter Threshold</label>
+                    <input type="range" id="noise-filter" min="0" max="0.5" step="0.01" value="0.1" class="w-32">
+                </div>
+            </div>
+            <div id="persistence-plot" class="viz-container h-[400px] w-full bg-slate-50"></div>
+        </div>
+    </section>
+
+    <!-- SECTION 3: ARXIV MATCHER SCRIPT -->
+    <section class="mb-12">
+        <h2 class="text-2xl font-semibold mb-4 text-slate-800">3. Implementation: Automated Literature Ingestion</h2>
+        <p class="mb-4 text-slate-700">This Python script uses the public arXiv API to pull recent papers linking topology/persistent homology and language models, to help track the current state of this niche research area over time.</p>
+        
+        <div class="rounded-lg overflow-hidden shadow-sm border border-slate-700 bg-[#282c34]">
+<pre><code class="language-python">import urllib.request
+import xml.etree.ElementTree as ET
+from datetime import datetime
+
+class LiteratureIngestor:
+    def __init__(self):
+        self.base_url = 'http://export.arxiv.org/api/query?'
+        
+    def fetch_topology_papers(self, max_results=5):
+        """
+        Queries arXiv for recent papers intersecting topology/manifolds and LLMs.
+        """
+        # Search query: (Topology OR Manifold OR "Persistent Homology") AND ("Large Language Model" OR LLM)
+        query = 'search_query=all:"persistent homology" AND all:"language model"&sortBy=submittedDate&sortOrder=desc&max_results=' + str(max_results)
+        url = self.base_url + query
+        
+        response = urllib.request.urlopen(url)
+        data = response.read()
+        root = ET.fromstring(data)
+        
+        papers = []
+        # XML Namespace for Atom feed
+        ns = {'atom': 'http://www.w3.org/2005/Atom'}
+        
+        for entry in root.findall('atom:entry', ns):
+            title = entry.find('atom:title', ns).text.replace('\n', ' ').strip()
+            summary = entry.find('atom:summary', ns).text.replace('\n', ' ').strip()
+            published = entry.find('atom:published', ns).text
+            
+            papers.append({
+                "title": title,
+                "date": published[:10],
+                "abstract": summary
+            })
+            
+        return papers
+
+    def generate_ctx_citations(self, papers):
+        """Formats the fetched papers into .ctx format for the orchestration agent."""
+        ctx_output = "[[SCIENTIFIC_CONTEXT]]\n"
+        for i, paper in enumerate(papers):
+            ctx_output += f"-> REF_{i+1}: {paper['title']} ({paper['date']})\n"
+            ctx_output += f"   ABSTRACT: {paper['abstract'][:200]}...\n"
+        return ctx_output
+
+# Usage in context-os terminal:
+# ingestor = LiteratureIngestor()
+# latest_research = ingestor.fetch_topology_papers()
+# print(ingestor.generate_ctx_citations(latest_research))
+</code></pre>
+        </div>
+    </section>
+
+    <!-- D3.js Persistence Diagram Logic -->
+    <script>
+        hljs.highlightAll();
+
+        function renderPersistenceDiagram() {
+            const container = document.getElementById('persistence-plot');
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            const margin = {top: 20, right: 20, bottom: 40, left: 40};
+            const innerWidth = width - margin.left - margin.right;
+            const innerHeight = height - margin.top - margin.bottom;
+
+            // Generate synthetic TDA data (Birth, Death, Type)
+            const data = [];
+            for(let i=0; i<100; i++) {
+                let birth = Math.random();
+                let death = birth + (Math.random() * (1 - birth));
+                // Features far from diagonal are "H1" (loops), close are "H0" (noise/components)
+                let type = (death - birth > 0.4) ? "H1 (Semantic Loop)" : "H0 (Component)";
+                data.push({birth, death, type, persistence: death - birth});
+            }
+
+            const svg = d3.select("#persistence-plot").append("svg")
+                .attr("width", width)
+                .attr("height", height)
+                .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+
+            const xScale = d3.scaleLinear().domain([0, 1]).range([0, innerWidth]);
+            const yScale = d3.scaleLinear().domain([0, 1]).range([innerHeight, 0]);
+
+            // Axes
+            svg.append("g").attr("transform", `translate(0,${innerHeight})`).call(d3.axisBottom(xScale).ticks(5)).attr("color", "#64748b");
+            svg.append("g").call(d3.axisLeft(yScale).ticks(5)).attr("color", "#64748b");
+            
+            // Labels
+            svg.append("text").attr("x", innerWidth/2).attr("y", innerHeight + 35).style("text-anchor", "middle").style("fill", "#475569").style("font-size", "12px").text("Birth Radius");
+            svg.append("text").attr("transform", "rotate(-90)").attr("y", -30).attr("x", -innerHeight/2).style("text-anchor", "middle").style("fill", "#475569").style("font-size", "12px").text("Death Radius");
+
+            // Diagonal Line (Birth = Death)
+            svg.append("line")
+                .attr("x1", xScale(0)).attr("y1", yScale(0))
+                .attr("x2", xScale(1)).attr("y2", yScale(1))
+                .attr("stroke", "#94a3b8")
+                .attr("stroke-dasharray", "4,4")
+                .attr("stroke-width", 2);
+
+            // Draw Points
+            const points = svg.selectAll("circle")
+                .data(data)
+                .enter()
+                .append("circle")
+                .attr("cx", d => xScale(d.birth))
+                .attr("cy", d => yScale(d.death))
+                .attr("r", 5)
+                .attr("fill", d => d.type.includes("H1") ? "#3b82f6" : "#ef4444")
+                .attr("opacity", 0.7)
+                .attr("stroke", "#fff")
+                .attr("stroke-width", 1);
+
+            // Filter logic
+            const slider = document.getElementById('noise-filter');
+            slider.addEventListener('input', function() {
+                const threshold = parseFloat(this.value);
+                points.transition().duration(300)
+                    .attr("opacity", d => d.persistence > threshold ? 0.8 : 0.05)
+                    .attr("r", d => d.persistence > threshold ? 6 : 3);
+            });
+            
+            // Initial filter trigger
+            slider.dispatchEvent(new Event('input'));
+        }
+
+        // Render on load and handle resize
+        setTimeout(renderPersistenceDiagram, 100);
+        window.addEventListener('resize', () => {
+            document.getElementById('persistence-plot').innerHTML = '';
+            renderPersistenceDiagram();
+        });
+    </script>
+</body>
+</html>

@@ -42,6 +42,24 @@ export interface ScannedFile {
   size: number;
 }
 
+export interface ScanSkip {
+  filepath: string;
+  reason:
+    | "too_large"
+    | "read_error"
+    | "file_limit"
+    | "total_bytes_limit"
+    | "depth_limit";
+  detail?: string;
+}
+
+export interface ScanResult {
+  files: ScannedFile[];
+  seenFilepaths: string[];
+  skipped: ScanSkip[];
+  complete: boolean;
+}
+
 export class ProjectScanner {
   private commitHash?: string;
 
@@ -50,20 +68,74 @@ export class ProjectScanner {
   }
 
   scan(): ScannedFile[] {
-    const results: ScannedFile[] = [];
-    this.commitHash = getGitCommitHash(this.config.projectRoot);
-    this.walkDir(this.config.projectRoot, results);
-    return results;
+    return this.scanDetailed().files;
   }
 
-  private walkDir(currentDir: string, results: ScannedFile[]) {
+  scanDetailed(): ScanResult {
+    const results: ScannedFile[] = [];
+    const seenFilepaths = new Set<string>();
+    const skipped: ScanSkip[] = [];
+    const state = { acceptedBytes: 0, complete: true };
+    this.commitHash = getGitCommitHash(this.config.projectRoot);
+    this.walkDir(this.config.projectRoot, 0, results, seenFilepaths, skipped, state);
+    results.sort((a, b) => a.filepath.localeCompare(b.filepath));
+    skipped.sort((a, b) => a.filepath.localeCompare(b.filepath));
+    return {
+      files: results,
+      seenFilepaths: Array.from(seenFilepaths).sort(),
+      skipped,
+      complete: state.complete,
+    };
+  }
+
+  private isExcludedProjectPath(relativePath: string): boolean {
+    const normalized = relativePath.replace(/\\/g, "/");
+    return this.config.excludedPathPrefixes.some(
+      (prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`)
+    );
+  }
+
+  private walkDir(
+    currentDir: string,
+    depth: number,
+    results: ScannedFile[],
+    seenFilepaths: Set<string>,
+    skipped: ScanSkip[],
+    state: { acceptedBytes: number; complete: boolean }
+  ) {
     if (!fs.existsSync(currentDir)) return;
 
-    const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    if (depth > this.config.maxScanDepth) {
+      state.complete = false;
+      skipped.push({
+        filepath: path.relative(this.config.projectRoot, currentDir) || ".",
+        reason: "depth_limit",
+      });
+      return;
+    }
+
+    let entries: fs.Dirent[];
+    try {
+      entries = fs
+        .readdirSync(currentDir, { withFileTypes: true })
+        .sort((a, b) => a.name.localeCompare(b.name));
+    } catch (error) {
+      state.complete = false;
+      skipped.push({
+        filepath: path.relative(this.config.projectRoot, currentDir) || ".",
+        reason: "read_error",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
 
     for (const entry of entries) {
       const fullPath = path.join(currentDir, entry.name);
       const relativePath = path.relative(this.config.projectRoot, fullPath);
+
+      if (this.isExcludedProjectPath(relativePath)) {
+        continue;
+      }
 
       if (entry.isDirectory()) {
         if (
@@ -72,7 +144,7 @@ export class ProjectScanner {
         ) {
           continue;
         }
-        this.walkDir(fullPath, results);
+        this.walkDir(fullPath, depth + 1, results, seenFilepaths, skipped, state);
       } else if (entry.isFile()) {
         if (
           this.config.excludedFiles.includes(entry.name) ||
@@ -85,8 +157,27 @@ export class ProjectScanner {
 
         const ext = path.extname(entry.name).toLowerCase();
         if (this.config.supportedExtensions.includes(ext)) {
+          seenFilepaths.add(relativePath);
           try {
             const stat = fs.statSync(fullPath);
+            if (stat.size > this.config.maxFileBytes) {
+              skipped.push({
+                filepath: relativePath,
+                reason: "too_large",
+                detail: `${stat.size} bytes exceeds ${this.config.maxFileBytes}`,
+              });
+              continue;
+            }
+            if (results.length >= this.config.maxFiles) {
+              state.complete = false;
+              skipped.push({ filepath: relativePath, reason: "file_limit" });
+              continue;
+            }
+            if (state.acceptedBytes + stat.size > this.config.maxTotalBytes) {
+              state.complete = false;
+              skipped.push({ filepath: relativePath, reason: "total_bytes_limit" });
+              continue;
+            }
             const content = fs.readFileSync(fullPath, "utf8");
             const moduleName = inferModuleFromPath(relativePath);
             results.push({
@@ -99,7 +190,15 @@ export class ProjectScanner {
               mtime: Math.floor(stat.mtimeMs),
               size: stat.size,
             });
-          } catch (err) {}
+            state.acceptedBytes += stat.size;
+          } catch (error) {
+            state.complete = false;
+            skipped.push({
+              filepath: relativePath,
+              reason: "read_error",
+              detail: error instanceof Error ? error.message : String(error),
+            });
+          }
         }
       }
     }

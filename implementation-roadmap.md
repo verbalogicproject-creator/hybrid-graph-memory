@@ -1,8 +1,16 @@
 # Antigravity Memory OS: Implementation Roadmap
 
+> **Historical roadmap — not a capability or evidence statement.** Some items
+> were implemented in narrower, review-gated form; others remain proposals. Graph
+> retrieval does not guarantee complete context or prevent model hallucination.
+> Current behavior is defined by code, tests, `README.md`, and the canonical claim
+> ledger.
+
 **Vision:** A standalone, persistent, external Causal Memory Engine that acts as the "System 2 Frontal Lobe" for external coding agents (Claude Code, Codex, Antigravity). 
 
-**Core Principle:** *Separation of Concerns.* The Memory OS does not write code. It indexes reality, analyzes graph topology, runs background simulations, and perfectly serves highly-scoped Context Windows to external autonomous agents via an API.
+**Original design principle:** separate evidence storage/retrieval from code-writing
+agents and serve bounded context through an API. Completeness and correctness must
+be evaluated; they are not guaranteed.
 
 ---
 
@@ -22,11 +30,12 @@
   3. Update the 3D Renderer to display AI-inferred edges in a distinct style (e.g., pulsating neon pink), allowing the human to visually see the AI "thinking" and finding hidden architectural couplings.
 
 ## Phase 3: The "Checkout" API for External Agents
-* **Goal:** Serve perfectly scoped context to external LLMs.
+* **Goal:** Serve bounded, provenance-aware context to external LLMs.
 * **Architecture:**
   1. Expose a REST API or MCP (Model Context Protocol) server via the Express dashboard.
   2. Endpoint: `GET /api/context?node=src/auth.ts`
-  3. Instead of naive text search, the API uses ULTRA's structural ranking to extract the optimal Sub-Graph, preventing the LLM from hallucinating while staying strictly within its token limits.
+  3. Compare structural ranking with neutral retrieval baselines and measure
+     relevance, leakage, and unsupported-answer rates under a fixed token budget.
 
 ## Phase 4: Generalized Epistemology Plugins
 * **Goal:** Move beyond code into universal knowledge representation.

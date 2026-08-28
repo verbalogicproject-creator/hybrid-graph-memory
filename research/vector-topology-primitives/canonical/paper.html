@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="Eyal Nof" />
+  <meta name="dcterms.date" content="2026-08-28" />
+  <title>Governed Hybrid Graph Memory: An Auditable System and Falsifiable Evaluation Protocol</title>
+  <style>
+    html {
+      font-size: 11pt;
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+        font-size: 12pt;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    div.abstract {
+      margin: 2em 2em 2em 2em;
+      text-align: left;
+      font-size: 85%;
+    }
+    div.abstract-title {
+      font-weight: bold;
+      text-align: center;
+      padding: 0;
+      margin-bottom: 0.5em;
+    }
+    code {
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for citations */
+    div.csl-bib-body { }
+    div.csl-entry {
+      clear: both;
+      margin-bottom: 0em;
+    }
+    .hanging-indent div.csl-entry {
+      margin-left:2em;
+      text-indent:-2em;
+    }
+    div.csl-left-margin {
+      min-width:2em;
+      float:left;
+    }
+    div.csl-right-inline {
+      margin-left:2em;
+      padding-left:1em;
+    }
+    div.csl-indent {
+      margin-left: 2em;
+    }  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Governed Hybrid Graph Memory: An Auditable System and
+Falsifiable Evaluation Protocol</h1>
+<p class="author">Eyal Nof</p>
+<p class="date">2026-08-28</p>
+<div class="abstract">
+<div class="abstract-title">Abstract</div>
+<p>We describe a local-first memory and retrieval implementation that
+combines vector similarity, lexical retrieval, reciprocal-rank fusion,
+and relation expansion while tracking relation origin and admission. The
+contribution established here is an engineering artifact and a
+falsifiable evaluation protocol. We do not report a theorem, a manifold
+construction, a physical model, or an empirical superiority result. A
+historical script that claimed to prove topological retrieval
+superiority is withdrawn because it did not implement its stated
+baseline and contained an unmeasured conclusion. We specify neutral
+baselines, adversarial ablations, held-out relevance judgments, nDCG@10,
+paired bootstrap confidence intervals, permutation tests, and explicit
+negative outcomes. Until a frozen benchmark is executed, retrieval
+superiority remains not demonstrated.</p>
+</div>
+</header>
+<h1 id="problem-and-contribution-boundary">1. Problem and contribution
+boundary</h1>
+<p>Long-running coding and research workflows need local context that
+survives a single model conversation. Vector search retrieves semantic
+neighbors; lexical search retrieves exact identifiers; explicit
+dependency relations can retrieve structurally adjacent material.
+Combining them is useful engineering, but it does not by itself
+establish a new mathematical topology or a performance advantage.</p>
+<p>Graph-enabled RAG and topology-aware retrieval already exist in
+several forms. GraphRAG constructs graph indexes and community summaries
+for corpus-level questions <span class="citation"
+data-cites="edge2024graphrag">(<a href="#ref-edge2024graphrag"
+role="doc-biblioref">Edge et al. 2024</a>)</span>. G-Retriever selects
+relevant textual subgraphs using a prize-collecting Steiner-tree
+formulation <span class="citation" data-cites="he2024gretriever">(<a
+href="#ref-he2024gretriever" role="doc-biblioref">He et al.
+2024</a>)</span>. Topology-aware RAG has directly investigated
+proximity- and role-based graph relations <span class="citation"
+data-cites="wang2024topology">(<a href="#ref-wang2024topology"
+role="doc-biblioref">Wang et al. 2024</a>)</span>. Consequently, the
+broad statement “use graph topology in RAG” cannot be treated as novel
+here.</p>
+<p>The presently defensible contribution has two parts:</p>
+<ol type="1">
+<li>a governed implementation in which declared, AST-observed,
+model-inferred, and legacy-unknown edges have different trust standing;
+and</li>
+<li>an executable evaluator that can reject a favored conclusion when
+fixed-budget held-out evidence is insufficient.</li>
+</ol>
+<p>The implementation also includes a live graph renderer and standalone
+HTML exporter. These surfaces make admitted relations, node degree,
+descriptions, and community labels inspectable. Their deterministic
+force-directed display is a debugging and communication aid; display
+coordinates are not measurements of an intrinsic latent geometry.</p>
+<p>No mathematical contribution is claimed. Novelty beyond this
+implementation combination requires a systematic literature review and
+comparison with primary prior art.</p>
+<h1 id="system-definition">2. System definition</h1>
+<p>Let the corpus contain retrievable records <span
+class="math inline"><em>D</em></span>, query <span
+class="math inline"><em>q</em></span>, and an admitted directed relation
+multigraph <span
+class="math inline"><em>G</em> = (<em>V</em>, <em>E</em>)</span>. Each
+relation stores its origin, admission status, namespace, source,
+confidence, and (for model output) model provenance. Default retrieval
+admits only <code>declared</code> and <code>observed_ast</code> edges
+whose status is <code>admitted</code>. Predicted edges are candidates
+and cannot self-promote.</p>
+<p>For nonzero embedding vectors <span
+class="math inline"><em>q</em>, <em>d</em> ∈ ℝ<sup><em>p</em></sup></span>,
+semantic similarity is</p>
+<p><span class="math display">$$s_{\mathrm{cos}}(q,d)=\frac{q^\top
+d}{\lVert q\rVert_2\lVert d\rVert_2}.$$</span></p>
+<p>Semantic, lexical, and graph rankings are combined with weighted
+reciprocal-rank fusion,</p>
+<p><span class="math display">$$s_{\mathrm{RRF}}(d)=\sum_{m\in
+M}\frac{w_m}{k+r_m(d)+1},$$</span></p>
+<p>a standard rank-fusion family <span class="citation"
+data-cites="cormack2009rrf">(<a href="#ref-cormack2009rrf"
+role="doc-biblioref">Cormack, Clarke, and Buettcher 2009</a>)</span>. A
+time-decay factor may affect ranking, but is a policy signal rather than
+evidence that newer content is true.</p>
+<p>The disambiguation gate accepts a retrieval when it has exact
+trigger, symbol, or heading evidence, or when the best raw cosine score
+meets a declared threshold. It does not compare the differently scaled
+RRF score with a cosine threshold. Access counters update only after the
+gate accepts real results.</p>
+<h1 id="engineering-invariants-and-threat-model">3. Engineering
+invariants and threat model</h1>
+<p>The repaired implementation is designed around the following
+falsifiable invariants:</p>
+<ul>
+<li>malformed configuration and corrupt index manifests fail
+closed;</li>
+<li>traversal is sorted and bounded by depth, file count, file size, and
+total bytes;</li>
+<li>an incomplete scan cannot trigger deletion-based index
+replacement;</li>
+<li>staged indexing mutates the database in one transaction;</li>
+<li>inferred and legacy-unknown relations are excluded by default;</li>
+<li>operational asset admission requires a nonempty human reviewer;</li>
+<li>the historical global-hive export path is disabled;</li>
+<li>the JSON-RPC server separates parse, envelope, method, parameter,
+internal, and permission errors;</li>
+<li>the dashboard defaults to loopback and escapes stored values.</li>
+</ul>
+<p>These are program properties supported by tests, not theorems about
+all possible deployments. Residual risks include denial of service
+within configured bounds, the absence of dashboard authentication, a
+browser dependency allowed from <code>unpkg.com</code>, compromised
+local model services, assessor bias, and incorrect explicit
+relations.</p>
+<h1 id="withdrawal-of-the-historical-proof">4. Withdrawal of the
+historical proof</h1>
+<p>The historical evaluator selected the maximum-degree node, compared
+its Louvain community with another list of maximum-degree nodes, called
+that list “simulated kNN,” hard-coded zero noise, and emitted
+unconditional approval. It never computed nearest neighbors from
+embeddings. Its density denominator also silently assumed a directed
+simple graph, while stored relations may require explicit direction and
+multiedge semantics.</p>
+<p>Therefore the result cannot establish any of the following: kNN
+degradation, topological superiority, semantic isolation, a manifold,
+zero noise, or a guarantee. The executable now fails closed and points
+to the replacement protocol.</p>
+<h1 id="evaluation-protocol">5. Evaluation protocol</h1>
+<p>The frozen protocol compares exact cosine top-k, lexical-only,
+semantic+lexical RRF, graph-only, the production hybrid, a no-provenance
+ablation, a degree-preserving shuffled-edge control, and the historical
+hub heuristic as a negative control. All systems share the same query,
+candidate universe, namespace, timestamp cutoff, output <span
+class="math inline"><em>K</em></span>, and maximum candidate-evaluation
+budget.</p>
+<p>For graded relevance <span
+class="math inline">rel<sub><em>i</em></sub></span>,</p>
+<p><span
+class="math display">$$\mathrm{DCG}@K=\sum_{i=1}^{K}\frac{2^{\mathrm{rel}_i}-1}{\log_2(i+1)},\qquad
+\mathrm{nDCG}@K=\frac{\mathrm{DCG}@K}{\mathrm{IDCG}@K}.$$</span></p>
+<p>The primary endpoint is macro mean nDCG@10 on answerable queries.
+Negative and underspecified queries are evaluated through gate
+false-accept and false-reject rates rather than being assigned zero
+ideal DCG. Confirmatory analysis averages each query across seeds 0–9,
+then uses a query-type-stratified paired bootstrap with 10,000
+resamples, a paired sign-flip permutation test with 10,000 resamples,
+and Holm familywise correction. A superiority comparison is confirmed
+only when the mean improvement is at least 0.02, the 95% confidence
+interval lower bound exceeds 0.02, adjusted <span
+class="math inline"><em>p</em> &lt; 0.05</span>, and at least eight of
+ten seed deltas are positive.</p>
+<p>The current executable binds confirmatory input to candidate B4,
+baselines B0/B2/B6, the full freeze manifest, the declared query roster,
+and seeds 0–9. It can decide only H1–H3. H4–H6 still require distinct
+executable analyses for non-inferiority and safety, quantization, and
+blinded answer scoring.</p>
+<p>The protocol also reports recall, precision, measured noise,
+namespace leakage, relation coverage, latency, memory, and gate error
+rates. Any namespace leakage is an engineering failure. Quantization
+studies distinguish embedding-vector quantization from model-weight
+quantization and compare FP32, FP16, and a fully specified INT4
+transformation using neighbor Jaccard overlap, Kendall <span
+class="math inline"><em>τ</em><sub><em>b</em></sub></span>, and
+edge-distance error.</p>
+<p>Adversarial cases include poisoned inferred edges, wrong namespaces,
+disconnected graphs, singleton and zero-edge communities,
+duplicate/multiedges, hubs, identifier-free paraphrases, irrelevant
+structural neighbors, shuffled edges, and post-cutoff information.</p>
+<h1 id="mathematics-and-physics-boundary">6. Mathematics and physics
+boundary</h1>
+<p>Directed graphs can support legitimate algebraic-topological
+constructions; path homology, for example, defines chain-like structures
+for digraphs <span class="citation" data-cites="grigoryan2012path">(<a
+href="#ref-grigoryan2012path" role="doc-biblioref">Grigor’yan et al.
+2012</a>)</span>. But naming graph neighborhoods “manifolds” does not
+construct a manifold. Likewise, <span
+class="math inline">∂<sup>2</sup> = 0</span> is a consistency identity
+once a chain complex is defined; it does not prove that a retrieval
+ontology is complete or meaningful.</p>
+<p>Maggie Miller’s documented research concerns geometric
+low-dimensional topology, especially surfaces embedded in 4-manifolds,
+isotopy, concordance, complements, and related structures <span
+class="citation" data-cites="millerresearch">(<a
+href="#ref-millerresearch" role="doc-biblioref">Miller,
+n.d.</a>)</span>. No reviewed source used here connects that work to
+this retrieval architecture or to general relativity.</p>
+<p>In relativity, four-dimensional spacetime combines three spatial
+coordinates with time, and general relativity relates physical spacetime
+geometry to gravity <span class="citation"
+data-cites="einsteinonline">(<a href="#ref-einsteinonline"
+role="doc-biblioref">Max Planck Institute for Gravitational Physics,
+n.d.</a>)</span>. A four-manifold in geometric topology is therefore not
+automatically physical spacetime. A retrieval model would need an
+explicitly defined differentiable manifold, metric tensor and signature,
+observable mapping, field/dynamical equations, and out-of-sample
+predictive advantage before a relativity claim could be evaluated.</p>
+<p>Motion and parallax can supply multiple observations that reveal
+depth or temporal change. That intuition motivates a possible
+temporal/multi-view retrieval experiment. It does not prove an
+additional spatial dimension. The required future dataset must record
+entity, time, viewpoint, observation, and held-out targets, then compare
+against lower-dimensional and nontemporal alternatives.</p>
+<h1 id="results-presently-supported">7. Results presently supported</h1>
+<p>The software build, typecheck, alignment controls, and hostile
+regression suite can support the implementation invariants after
+independent rerun. The evaluator smoke test supports only contract
+behavior: invalid budgets, duplicate rankings, positive relevance on
+negative queries, arbitrary confirmatory candidates, incomplete baseline
+rosters, and absent freeze metadata are rejected; smoke mode cannot
+issue a scientific claim.</p>
+<p>No frozen corpus with blinded relevance judgments and no confirmatory
+run receipt is included at this stage. Therefore:</p>
+<blockquote>
+<p><strong>Hybrid retrieval superiority is not
+demonstrated.</strong></p>
+</blockquote>
+<p>This is not a negative judgment about the idea. It is the only result
+licensed by the available evidence.</p>
+<h1 id="what-qualifies-as-contributing">8. What qualifies as
+contributing</h1>
+<p>The repository can objectively contribute a useful software artifact:
+provenance- typed graph memory, review-gated inferred relations,
+transactional indexing, fail-closed controls, and a reusable evaluation
+harness. That contribution can be inspected and reproduced even if the
+primary empirical hypothesis later fails.</p>
+<p>An empirical research contribution requires the frozen benchmark and
+prespecified results. A mathematical contribution requires a new formal
+statement and proof. A physics contribution requires a physical model
+and discriminating predictions. None of those stronger categories
+follows from terminology or architectural fit.</p>
+<h1 id="conclusion">9. Conclusion</h1>
+<p>The collision between graph memory and topology is productive when it
+generates clear definitions, controls, and experiments. The repaired
+project converts an unconditional narrative into a governed engineering
+artifact and a falsifiable research program. Its present result is
+deliberately bounded: implementation invariants are testable; broad
+superiority, manifold, and relativity claims remain unproved.</p>
+<h1 class="unnumbered" id="references">References</h1>
+<div id="refs" class="references csl-bib-body hanging-indent"
+data-entry-spacing="0" role="list">
+<div id="ref-cormack2009rrf" class="csl-entry" role="listitem">
+Cormack, Gordon V., Charles L. A. Clarke, and Stefan Buettcher. 2009.
+<span>“Reciprocal Rank Fusion Outperforms Condorcet and Individual Rank
+Learning Methods.”</span> In <em>Proceedings of the 32nd International
+ACM SIGIR Conference</em>, 758–59. <a
+href="https://doi.org/10.1145/1571941.1572114">https://doi.org/10.1145/1571941.1572114</a>.
+</div>
+<div id="ref-edge2024graphrag" class="csl-entry" role="listitem">
+Edge, Darren, Ha Trinh, Newman Cheng, Joshua Bradley, Alex Chao, Apurva
+Mody, Steven Truitt, Dasha Metropolitansky, Robert Osazuwa Ness, and
+Jonathan Larson. 2024. <span>“From Local to Global: A Graph RAG Approach
+to Query-Focused Summarization.”</span> <em>arXiv Preprint
+arXiv:2404.16130</em>. <a
+href="https://doi.org/10.48550/arXiv.2404.16130">https://doi.org/10.48550/arXiv.2404.16130</a>.
+</div>
+<div id="ref-grigoryan2012path" class="csl-entry" role="listitem">
+Grigor’yan, Alexander, Yong Lin, Yuri Muranov, and Shing-Tung Yau. 2012.
+<span>“Homologies of Path Complexes and Digraphs.”</span> <em>arXiv
+Preprint arXiv:1207.2834</em>. <a
+href="https://doi.org/10.48550/arXiv.1207.2834">https://doi.org/10.48550/arXiv.1207.2834</a>.
+</div>
+<div id="ref-he2024gretriever" class="csl-entry" role="listitem">
+He, Xiaoxin, Yijun Tian, Yifei Sun, Nitesh V. Chawla, Thomas Laurent,
+Yann LeCun, Xavier Bresson, and Bryan Hooi. 2024. <span>“G-Retriever:
+Retrieval-Augmented Generation for Textual Graph Understanding and
+Question Answering.”</span> <em>arXiv Preprint arXiv:2402.07630</em>. <a
+href="https://doi.org/10.48550/arXiv.2402.07630">https://doi.org/10.48550/arXiv.2402.07630</a>.
+</div>
+<div id="ref-einsteinonline" class="csl-entry" role="listitem">
+Max Planck Institute for Gravitational Physics. n.d.
+<span>“Spacetime.”</span> Einstein Online. <a
+href="https://www.einstein-online.info/en/spacetime/">https://www.einstein-online.info/en/spacetime/</a>.
+</div>
+<div id="ref-millerresearch" class="csl-entry" role="listitem">
+Miller, Maggie. n.d. <span>“Research Interests and Publications.”</span>
+University of Texas at Austin. <a
+href="https://web.ma.utexas.edu/users/maggiem/research.html">https://web.ma.utexas.edu/users/maggiem/research.html</a>.
+</div>
+<div id="ref-wang2024topology" class="csl-entry" role="listitem">
+Wang, Yu, Nedim Lipka, Ruiyi Zhang, Alexa Siu, Yuying Zhao, Bo Ni, Xin
+Wang, Ryan Rossi, and Tyler Derr. 2024. <span>“Augmenting Textual
+Generation via Topology Aware Retrieval.”</span> <em>arXiv Preprint
+arXiv:2405.17602</em>. <a
+href="https://doi.org/10.48550/arXiv.2405.17602">https://doi.org/10.48550/arXiv.2405.17602</a>.
+</div>
+</div>
+</body>
+</html>

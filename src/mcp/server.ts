@@ -2,48 +2,130 @@ import readline from "node:readline";
 import { MemoryEngine } from "../core/engine";
 
 export interface MemoryMcpServerOptions {
-  /** Local-only escape hatch. The default server exposes a read-only boundary. */
+  /** Local-only escape hatch. Default mode blocks content/admin mutations; reads update access telemetry. */
   mutationMode?: boolean;
 }
 
 export class MemoryMcpServer {
   private engine: MemoryEngine;
-  private rl: readline.Interface;
+  private rl?: readline.Interface;
   private mutationMode: boolean;
 
   constructor(engine?: MemoryEngine, options: MemoryMcpServerOptions | boolean = {}) {
     this.engine = engine || new MemoryEngine();
     this.mutationMode =
       typeof options === "boolean" ? options : options.mutationMode === true;
+  }
+
+  public async start() {
+    await this.engine.init();
     this.rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
       terminal: false,
     });
-  }
-
-  public async start() {
-    await this.engine.init();
     this.rl.on("line", async (line) => {
       if (!line.trim()) return;
-
-      try {
-        const request = JSON.parse(line);
-        const response = await this.handleRequest(request);
+      const response = await this.processLine(line);
+      if (response !== undefined) {
         process.stdout.write(JSON.stringify(response) + "\n");
-      } catch (err: any) {
-        process.stdout.write(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            error: { code: -32603, message: err.message },
-          }) + "\n"
-        );
       }
     });
   }
 
-  private async handleRequest(req: any): Promise<any> {
+  public async processLine(line: string): Promise<any | undefined> {
+    let request: unknown;
+    try {
+      request = JSON.parse(line);
+    } catch {
+      return this.error(null, -32700, "Parse error");
+    }
+    return this.handleRequest(request);
+  }
+
+  public async handleRequest(request: unknown): Promise<any | undefined> {
+    if (!request || typeof request !== "object" || Array.isArray(request)) {
+      return this.error(null, -32600, "Invalid Request");
+    }
+    const req = request as Record<string, unknown>;
+    const hasId = Object.prototype.hasOwnProperty.call(req, "id");
+    const id = hasId && (typeof req.id === "string" || typeof req.id === "number" || req.id === null)
+      ? req.id
+      : null;
+    if (req.jsonrpc !== "2.0" || typeof req.method !== "string" || (hasId && id === null && req.id !== null)) {
+      return this.error(null, -32600, "Invalid Request");
+    }
+    try {
+      const response = await this.dispatchValidated(req as any);
+      return hasId ? response : undefined;
+    } catch {
+      return hasId ? this.error(id, -32603, "Internal error") : undefined;
+    }
+  }
+
+  private error(id: unknown, code: number, message: string, data?: unknown) {
+    return { jsonrpc: "2.0", id, error: { code, message, ...(data === undefined ? {} : { data }) } };
+  }
+
+  private invalidParams(id: unknown, message: string) {
+    return this.error(id, -32602, message);
+  }
+
+  private validateToolArguments(name: string, args: unknown): string | undefined {
+    if (!args || typeof args !== "object" || Array.isArray(args)) return "Tool arguments must be an object";
+    const value = args as Record<string, unknown>;
+    const nonblank = (key: string) => typeof value[key] === "string" && (value[key] as string).trim().length > 0;
+    const optionalString = (key: string) => value[key] === undefined || typeof value[key] === "string";
+    switch (name) {
+      case "agy_memory_search":
+        if (!nonblank("query")) return "query must be a non-empty string";
+        if (value.limit !== undefined && (!Number.isInteger(value.limit) || (value.limit as number) < 1 || (value.limit as number) > 100)) return "limit must be an integer from 1 to 100";
+        if (!optionalString("intent")) return "intent must be a string";
+        return;
+      case "agy_local_rag_generate":
+        if (!nonblank("prompt")) return "prompt must be a non-empty string";
+        if (!optionalString("model")) return "model must be a string";
+        return;
+      case "agy_graph_inspect":
+        return optionalString("nodeId") ? undefined : "nodeId must be a string";
+      case "agy_memory_receipts":
+        return optionalString("incidentType") ? undefined : "incidentType must be a string";
+      case "agy_load_operational_asset":
+        if (!nonblank("triggerTag")) return "triggerTag must be a non-empty string";
+        if (value.includeCandidates !== undefined && typeof value.includeCandidates !== "boolean") return "includeCandidates must be a boolean";
+        return;
+      case "agy_ingest_operational_asset": {
+        if (!["prompt", "workflow", "skill", "rule"].includes(String(value.type))) return "type is invalid";
+        for (const key of ["title", "content", "targetFramework", "author"]) if (!nonblank(key)) return `${key} must be a non-empty string`;
+        if (!Array.isArray(value.triggerTags) || value.triggerTags.length === 0 || value.triggerTags.some((tag) => typeof tag !== "string" || !tag.trim())) return "triggerTags must be a non-empty string array";
+        return;
+      }
+      case "agy_admit_operational_asset":
+        if (!nonblank("assetId") || !nonblank("reviewedBy")) return "assetId and reviewedBy must be non-empty strings";
+        if (!optionalString("notes")) return "notes must be a string";
+        return;
+      case "agy_quarantine_operational_asset":
+        if (!nonblank("assetId") || !nonblank("reason") || !nonblank("reviewedBy")) return "assetId, reason, and reviewedBy must be non-empty strings";
+        if (value.status !== undefined && !["quarantined", "rejected"].includes(String(value.status))) return "status must be quarantined or rejected";
+        return;
+      case "agy_list_operational_assets":
+        if (value.status !== undefined && !["candidate", "admitted", "quarantined", "rejected"].includes(String(value.status))) return "status is invalid";
+        if (!optionalString("workspace")) return "workspace must be a string";
+        return;
+      default:
+        return `Unknown tool: ${name}`;
+    }
+  }
+
+  private async dispatchValidated(req: any): Promise<any> {
     const { id, method, params } = req;
+
+    if (method !== "tools/list" && method !== "tools/call") {
+      return this.error(id, -32601, `Method not found: ${method}`);
+    }
+    if (method === "tools/list" && params !== undefined && (typeof params !== "object" || params === null || Array.isArray(params))) {
+      return this.invalidParams(id, "tools/list params must be an object when provided");
+    }
 
     if (method === "tools/list") {
       return {
@@ -215,11 +297,16 @@ export class MemoryMcpServer {
     }
 
     if (method === "tools/call") {
+      if (!params || typeof params !== "object" || Array.isArray(params) || typeof params.name !== "string") {
+        return this.invalidParams(id, "tools/call requires object params with a tool name");
+      }
       const { name, arguments: args } = params;
+      const validationError = this.validateToolArguments(name, args);
+      if (validationError) return this.invalidParams(id, validationError);
 
       if (name === "agy_memory_search") {
         const results = await this.engine.search(args.query, {
-          limit: args.limit || 5,
+          limit: args.limit ?? 5,
           intent: args.intent,
         });
         return {
@@ -280,7 +367,7 @@ export class MemoryMcpServer {
 
       if (name === "agy_ingest_operational_asset") {
         if (!this.mutationMode) {
-          return { jsonrpc: "2.0", id, error: { code: -32600, message: "Mutation operations are disabled in read-only mode" } };
+          return this.error(id, -32001, "Content/admin mutations are disabled in default mode");
         }
         try {
           const assetId = await this.engine.ingestOperationalAsset({
@@ -324,7 +411,7 @@ export class MemoryMcpServer {
 
       if (name === "agy_admit_operational_asset") {
         if (!this.mutationMode) {
-          return { jsonrpc: "2.0", id, error: { code: -32600, message: "Mutation operations are disabled in read-only mode" } };
+          return this.error(id, -32001, "Content/admin mutations are disabled in default mode");
         }
         const success = await this.engine.admitOperationalAsset(
           args.assetId,
@@ -350,7 +437,7 @@ export class MemoryMcpServer {
 
       if (name === "agy_quarantine_operational_asset") {
         if (!this.mutationMode) {
-          return { jsonrpc: "2.0", id, error: { code: -32600, message: "Mutation operations are disabled in read-only mode" } };
+          return this.error(id, -32001, "Content/admin mutations are disabled in default mode");
         }
         const isReject = args.status === "rejected";
         const success = isReject
@@ -389,11 +476,7 @@ export class MemoryMcpServer {
       }
     }
 
-    return {
-      jsonrpc: "2.0",
-      id,
-      error: { code: -32601, message: `Method not found: ${method}` },
-    };
+    return this.error(id, -32601, `Method not found: ${method}`);
   }
 }
 

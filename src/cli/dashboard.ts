@@ -23,20 +23,14 @@ export async function runDashboard(engine: MemoryEngine) {
     }
 
     if (p.action === "receipts") {
-      const receipts = (engine as any).db.getReceipts();
-      console.log(`\n📋 Recent SAG Receipts (${receipts.length} found):`);
-      receipts.slice(0, 10).forEach((r: any) => {
-        console.log(`- [${r.level}] ${r.incidentType} (ID: ${r.id}) | Target: ${r.targetFramework}`);
+      const receipts = engine.getLegacyEvidenceReferences();
+      console.log(`\n📋 Unverified legacy evidence references (${receipts.length} found):`);
+      receipts.slice(0, 10).forEach((r) => {
+        console.log(`- [${r.evidenceStatus}] ${r.incidentType} (ID: ${r.id}) | Target: ${r.targetFramework || "unspecified"}`);
       });
       console.log("");
     } else if (p.action === "sleep") {
-      console.log("\n💤 Initiating Active Consolidation (Sleep Cycle)...");
-      try {
-        const stats = engine.db.consolidateToGlobalHive();
-        console.log(`✅ Consolidation complete. Scrubbed and merged ${stats.scrubbed} heuristics into global-hive.db.\n`);
-      } catch (err: any) {
-        console.error(`❌ Consolidation failed: ${err.message}\n`);
-      }
+      console.error("\n❌ Global-hive export is disabled until an allowlisted privacy contract and adversarial suite are implemented.\n");
     }
   }
 }

@@ -3,5 +3,16 @@
   "cloud": {
     "embeddingModel": "gemini-embedding-2",
     "generatorModel": "gemini-1.5-flash"
-  }
+  },
+  "excludedPathPrefixes": [
+    "research/vector-topology-primitives/legacy",
+    "Autonomous-Engineering-Department.md",
+    "Multi-Agent-Case-Study.md",
+    "Topological-Proof-Transcript.md",
+    "generalization-active.md",
+    "implementation-roadmap.md",
+    "killer-features.md",
+    "ultra-50g.md",
+    "upgrade-directions.md"
+  ]
 }

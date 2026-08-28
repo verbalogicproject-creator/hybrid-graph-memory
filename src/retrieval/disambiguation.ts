@@ -1,30 +1,44 @@
 import { RetrievedContext } from "../core/types";
 
+export interface DisambiguationEvidence {
+  exactEvidence: boolean;
+  topSemanticScore?: number;
+  threshold: number;
+}
+
 /**
  * Validates the fused retrieval results against the disambiguation threshold.
  * If the top result's confidence falls below the threshold, the system halts
  * and outputs a disambiguation request to force the LLM to clarify the query.
  */
 export function enforceDisambiguationGate(
-  results: any[], // Array of RankedCandidate
-  threshold: number = 0.60
+  results: RetrievedContext[],
+  evidence: DisambiguationEvidence
 ): RetrievedContext[] {
   if (results.length === 0) {
     return [];
   }
 
-  const topScore = results[0].finalScore || 0;
-  
-  if (topScore < threshold) {
+  const { exactEvidence, topSemanticScore, threshold } = evidence;
+  if (!Number.isFinite(threshold) || threshold < -1 || threshold > 1) {
+    throw new RangeError("disambiguationThreshold must be between -1 and 1");
+  }
+
+  if (!exactEvidence && (topSemanticScore === undefined || topSemanticScore < threshold)) {
+    const scoreLabel = topSemanticScore === undefined
+      ? "unavailable"
+      : topSemanticScore.toFixed(3);
     // Threshold failed: We inject the disambiguation request symbol.
     return [{
       id: "DISAMBIGUATION_REQUIRED",
       sourceType: "system_gate",
       modality: "text",
       content: `<antigravity_disambiguation_request>
-The Memory OS could not find a high-confidence match for your query (Top Score: ${topScore.toFixed(2)} < Threshold: ${threshold.toFixed(2)}). 
+The Memory OS could not find exact evidence or a semantic match above the configured threshold (Top semantic score: ${scoreLabel}; threshold: ${threshold.toFixed(3)}).
 Please clarify your intent or provide more specific architectural keywords.
 </antigravity_disambiguation_request>`,
+      finalScore: topSemanticScore ?? -1,
+      reason: "No exact evidence and semantic evidence was below the configured threshold",
     }];
   }
 

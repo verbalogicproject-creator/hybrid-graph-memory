@@ -213,7 +213,15 @@ export class MemoryEngine {
   }> {
     await this.ensureInitialized();
     onProgress?.({ phase: "scanning", message: "Scanning project directory..." });
-    const scannedFiles = this.scanner.scan();
+    const scanResult = this.scanner.scanDetailed();
+    if (!scanResult.complete) {
+      const summary = scanResult.skipped
+        .map((skip) => `${skip.filepath}:${skip.reason}`)
+        .slice(0, 20)
+        .join(", ");
+      throw new Error(`Index aborted because the project scan was incomplete: ${summary}`);
+    }
+    const scannedFiles = scanResult.files;
     const existingDbFiles = this.db.getAllFiles();
     const existingFileMap = new Map(existingDbFiles.map((f) => [f.filepath, f]));
 
@@ -221,13 +229,10 @@ export class MemoryEngine {
     let unchangedCount = 0;
     let deletedCount = 0;
 
-    const scannedPathSet = new Set(scannedFiles.map((f) => f.filepath));
-    for (const dbFile of existingDbFiles) {
-      if (!scannedPathSet.has(dbFile.filepath)) {
-        this.db.deleteFile(dbFile.id);
-        deletedCount++;
-      }
-    }
+    const seenPathSet = new Set(scanResult.seenFilepaths);
+    const deletionCandidates = existingDbFiles.filter(
+      (dbFile) => !seenPathSet.has(dbFile.filepath)
+    );
 
     const filesToProcess: typeof scannedFiles = [];
     for (const file of scannedFiles) {
@@ -244,6 +249,11 @@ export class MemoryEngine {
     }
 
     const totalToProcess = filesToProcess.length;
+    const stagedFiles: Array<{
+      file: FileRecord;
+      chunks: ChunkRecord[];
+      relations: MemoryRelation[];
+    }> = [];
 
     for (let idx = 0; idx < totalToProcess; idx++) {
       const file = filesToProcess[idx];
@@ -257,7 +267,7 @@ export class MemoryEngine {
         message: `Processing [${idx + 1}/${totalToProcess}]: ${file.filepath}`,
       });
 
-      this.db.upsertFile({
+      const stagedFile: FileRecord = {
         id: fileId,
         filepath: file.filepath,
         fileType: file.fileType,
@@ -268,15 +278,11 @@ export class MemoryEngine {
         mtime: file.mtime,
         size: file.size,
         indexedAt: Date.now(),
-      });
-
-      this.db.deleteChunksByFileId(fileId);
+      };
 
       let chunks: ChunkRecord[] = [];
+      const stagedRelations: MemoryRelation[] = [];
       const ext = `.${file.fileType}`.toLowerCase();
-
-      // Clear any prior relations for this source file
-      this.db.deleteRelationsBySource(file.filepath);
 
       if ([".ts", ".tsx", ".js", ".jsx", ".py", ".rs", ".go"].includes(ext)) {
         chunks = this.codeChunker.chunk(
@@ -288,18 +294,14 @@ export class MemoryEngine {
         );
 
         if ([".ts", ".tsx", ".js", ".jsx"].includes(ext)) {
-          try {
-            const relations = this.astMapper.extractRelationsFromSource(
-              file.filepath,
-              file.content,
-              this.config.workspace || "default",
-              this.config.projectName || "default",
-              file.module || "root"
-            );
-            for (const rel of relations) {
-              this.db.insertRelation(rel);
-            }
-          } catch (e) {}
+          const relations = this.astMapper.extractRelationsFromSource(
+            file.filepath,
+            file.content,
+            this.config.workspace || "default",
+            this.config.projectName || "default",
+            file.module || "root"
+          );
+          stagedRelations.push(...relations);
         }
       } else if ([".md", ".mdx"].includes(ext)) {
         chunks = this.mdChunker.chunk(
@@ -322,7 +324,7 @@ export class MemoryEngine {
           rel.workspace = this.config.workspace || "default";
           rel.project = this.config.projectName || "default";
           rel.module = file.module || "root";
-          this.db.insertRelation(rel);
+          stagedRelations.push(rel);
         }
       } else {
         chunks = this.textChunker.chunk(
@@ -352,29 +354,49 @@ export class MemoryEngine {
         });
 
         chunk.embedding = embedding;
-        this.db.insertChunk(chunk, file.filepath);
       }
 
+      stagedFiles.push({ file: stagedFile, chunks, relations: stagedRelations });
       indexedCount++;
     }
 
-    // Record index embedding identity manifest (Requirement 4)
-    this.db.setIndexManifest({
-      providerType: this.embeddingProvider.providerType,
-      modelName: this.embeddingProvider.modelName,
-      dimensions: this.embeddingProvider.dimensions,
-      updatedAt: Date.now(),
+    this.db.runInTransaction(() => {
+      for (const dbFile of deletionCandidates) {
+        this.db.deleteFile(dbFile.id);
+      }
+      for (const staged of stagedFiles) {
+        this.db.upsertFile(staged.file);
+        this.db.deleteChunksByFileId(staged.file.id);
+        this.db.deleteRelationsBySource(staged.file.filepath);
+        for (const relation of staged.relations) {
+          this.db.insertRelation(relation);
+        }
+        for (const chunk of staged.chunks) {
+          this.db.insertChunk(chunk, staged.file.filepath);
+        }
+      }
+      this.db.setIndexManifest({
+        providerType: this.embeddingProvider.providerType,
+        modelName: this.embeddingProvider.modelName,
+        dimensions: this.embeddingProvider.dimensions,
+        updatedAt: Date.now(),
+      });
     });
+    deletedCount = deletionCandidates.length;
 
     onProgress?.({ phase: "completed", message: "Indexing completed." });
 
     const stats = this.db.getStats();
 
     // Fire Ripple Decay Hook
-    const rippleHook = new RippleDecayHook(this.db, this.config.projectRoot || process.cwd());
-    rippleHook.execute();
-
-    (this as any).broadcastGraphUpdate?.();
+    try {
+      const rippleHook = new RippleDecayHook(this.db, this.config.projectRoot || process.cwd());
+      rippleHook.execute();
+      (this as any).broadcastGraphUpdate?.();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[memory] Index committed, but a post-commit hook failed: ${message}`);
+    }
     return {
       indexed: indexedCount,
       unchanged: unchangedCount,
@@ -873,13 +895,42 @@ ${edgeInsights.join("\n\n")}`;
     return this.mapRecordToOperationalAsset(match);
   }
 
-  public getAllRelations(options?: { workspace?: string; project?: string }): MemoryRelation[] {
+  public getAllRelations(options?: {
+    workspace?: string;
+    project?: string;
+    includeInferredRelations?: boolean;
+  }): MemoryRelation[] {
     return this.db.getAllRelations(options);
   }
 
   /** The namespace configured for this engine; exposed for bounded integrations. */
   public getProjectScope(): { workspace: string; project: string } {
     return { workspace: this.config.workspace, project: this.config.projectName };
+  }
+
+  public getVisualizationDescriptions(): Array<{ id: string; description: string }> {
+    return this.db.getVisualizationDescriptions();
+  }
+
+  public getCommunityAssignments(): Record<string, string[]> {
+    const target = path.join(path.dirname(this.config.dbPath), "multi_agent_communities.json");
+    try {
+      if (!fs.existsSync(target) || fs.statSync(target).size > 5 * 1024 * 1024) return {};
+      const parsed = JSON.parse(fs.readFileSync(target, "utf8"));
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+      const result: Record<string, string[]> = {};
+      let totalNodes = 0;
+      for (const [community, nodes] of Object.entries(parsed)) {
+        if (!Array.isArray(nodes) || nodes.some((node) => typeof node !== "string")) return {};
+        totalNodes += nodes.length;
+        if (totalNodes > 100_000) return {};
+        result[community] = nodes;
+      }
+      return result;
+    } catch {
+      console.warn("[memory] Ignoring malformed visualization community data.");
+      return {};
+    }
   }
 
   /**

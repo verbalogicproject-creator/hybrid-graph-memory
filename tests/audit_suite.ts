@@ -703,8 +703,35 @@ export class AuthenticationService extends BaseService implements IAuthValidator
     throw new Error("FAIL (Wave E3): Quarantined asset disposition was not preserved!");
   }
 
-  // Readmit asset for subsequent trust and staleness tests
-  await waveEEngine.admitOperationalAsset(scaffoldId, "lead_evaluator", "Re-verified and patched");
+  // Quarantine is sticky: the ordinary admission path must not restore trust.
+  const forbiddenReadmit = await waveEEngine.admitOperationalAsset(
+    scaffoldId,
+    "lead_evaluator",
+    "This must not bypass quarantine"
+  );
+  if (forbiddenReadmit) throw new Error("FAIL (Wave E3): Quarantined asset was directly re-admitted!");
+
+  // A corrected revision enters as a distinct candidate and receives a fresh review.
+  const correctedScaffoldId = await waveEEngine.ingestOperationalAsset({
+    type: "workflow",
+    title: "Next.js 15 App Router Scaffold (reviewed revision)",
+    content: "Step 1: Init layout.tsx. Step 2: Wire page.tsx. Step 3: Configure supported styling.",
+    triggerTags: ["@scaffold:nextjs", "nextjs_scaffold"],
+    targetFramework: "next@15.x",
+    author: "architect",
+    sourceDoc: "docs/scaffolds/nextjs15-reviewed.md",
+    workflowSteps: [
+      { order: 1, action: "create_layout", requiredTools: ["write_to_file"] },
+      { order: 2, action: "create_page", requiredTools: ["write_to_file"] },
+      { order: 3, action: "configure_supported_styling", requiredTools: ["write_to_file"] },
+    ],
+  });
+  const correctedAdmit = await waveEEngine.admitOperationalAsset(
+    correctedScaffoldId,
+    "lead_evaluator",
+    "Reviewed as a distinct corrected revision"
+  );
+  if (!correctedAdmit) throw new Error("FAIL (Wave E3): Corrected candidate was not admitted!");
 
   // E4: Staleness Detection (Report, Do Not Act)
   console.log("  [Wave E4] Testing Staleness Detection (Report, Do Not Act)...");
@@ -727,7 +754,7 @@ export class AuthenticationService extends BaseService implements IAuthValidator
     trustRetrieved &&
     trustRetrieved.targetFramework === "next@15.x" &&
     trustRetrieved.provenance.author === "architect" &&
-    trustRetrieved.provenance.sourceDoc === "docs/scaffolds/nextjs15.md" &&
+    trustRetrieved.provenance.sourceDoc === "docs/scaffolds/nextjs15-reviewed.md" &&
     trustRetrieved.spec?.workflowSteps?.length === 3 &&
     trustRetrieved.staleness.isStale === false
   ) {
@@ -933,10 +960,20 @@ deploy:
     jsonrpc: "2.0",
     id: "read-only-negative",
     method: "tools/call",
-    params: { name: "agy_ingest_operational_asset", arguments: {} },
+    params: {
+      name: "agy_ingest_operational_asset",
+      arguments: {
+        type: "rule",
+        title: "Read-only negative control",
+        content: "This valid candidate must still be denied.",
+        triggerTags: ["read_only_negative"],
+        targetFramework: "test",
+        author: "audit_suite",
+      },
+    },
   });
-  if (blockedMutation.error?.code !== -32600) {
-    throw new Error("FAIL (Edge Case 9): MCP mutation was not blocked in default read-only mode!");
+  if (blockedMutation.error?.code !== -32001) {
+    throw new Error("FAIL (Edge Case 9): MCP content mutation was not blocked in default mode!");
   }
   const mcpServer = new MemoryMcpServer(mcpEngine, true);
 
@@ -1055,8 +1092,7 @@ deploy:
   } else {
     throw new Error("FAIL (Edge Case 9): MCP did not handle unknown method with -32601 code!");
   }
-  (mcpServer as any).rl.close();
-  (mcpServer as any).engine.close();
+  mcpEngine.close();
   try {
     if (fs.existsSync(mcpDbPath)) fs.unlinkSync(mcpDbPath);
   } catch (e) {}

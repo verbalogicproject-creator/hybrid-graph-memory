@@ -25,12 +25,105 @@ export interface MemoryConfig {
   supportedExtensions: string[];
   excludedDirectories: string[];
   excludedFiles: string[];
+  /** Project-relative files or directory trees omitted before indexing. */
+  excludedPathPrefixes: string[];
   candidateLimit: number;
   defaultResultLimit: number;
   rrfConstant: number;
   halfLifeDays: number;
   disambiguationThreshold: number;
   minSimilarityThreshold: number;
+  maxFileBytes: number;
+  maxFiles: number;
+  maxTotalBytes: number;
+  maxScanDepth: number;
+}
+
+export class MemoryConfigError extends Error {
+  readonly code = "INVALID_MEMORY_CONFIG";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "MemoryConfigError";
+  }
+}
+
+function finiteNumber(
+  value: unknown,
+  field: string,
+  min: number,
+  max: number
+): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) {
+    throw new MemoryConfigError(
+      `${field} must be a finite number between ${min} and ${max}`
+    );
+  }
+  return value;
+}
+
+function stringArray(value: unknown, field: string): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item.trim())) {
+    throw new MemoryConfigError(`${field} must be an array of non-empty strings`);
+  }
+  return value;
+}
+
+function relativePathPrefixes(value: unknown, field: string): string[] | undefined {
+  const entries = stringArray(value, field);
+  if (!entries) return undefined;
+  return entries.map((entry) => {
+    const normalized = entry.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/$/, "");
+    if (
+      !normalized ||
+      path.isAbsolute(normalized) ||
+      normalized.split("/").some((part) => part === ".." || part === ".")
+    ) {
+      throw new MemoryConfigError(`${field} entries must be normalized project-relative paths`);
+    }
+    return normalized;
+  });
+}
+
+function record(value: unknown, field: string): Record<string, unknown> | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new MemoryConfigError(`${field} must be a JSON object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function nonblankString(value: unknown, field: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !value.trim()) {
+    throw new MemoryConfigError(`${field} must be a non-empty string`);
+  }
+  return value;
+}
+
+function positiveInteger(value: unknown, field: string, max: number): number | undefined {
+  const parsed = finiteNumber(value, field, 1, max);
+  if (parsed !== undefined && !Number.isInteger(parsed)) {
+    throw new MemoryConfigError(`${field} must be an integer`);
+  }
+  return parsed;
+}
+
+function loopbackUrl(value: unknown, field: string): string | undefined {
+  const raw = nonblankString(value, field);
+  if (raw === undefined) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new MemoryConfigError(`${field} must be a valid URL`);
+  }
+  if (!["http:", "https:"].includes(parsed.protocol) || !["127.0.0.1", "localhost", "[::1]"].includes(parsed.hostname)) {
+    throw new MemoryConfigError(`${field} must use HTTP(S) on a loopback host`);
+  }
+  return raw;
 }
 
 export function findProjectRoot(startDir = process.cwd()): string {
@@ -59,51 +152,61 @@ export function loadMemoryConfig(startDir = process.cwd()): MemoryConfig {
   if (fs.existsSync(configPath)) {
     try {
       parsed = JSON.parse(fs.readFileSync(configPath, "utf8"));
-    } catch (e) {
-      console.warn("Failed to parse .antigravityrc.json, using defaults.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new MemoryConfigError(`Invalid configuration at ${configPath}: ${message}`);
     }
   }
 
-  const projectName = parsed.projectName || path.basename(projectRoot);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new MemoryConfigError(`Invalid configuration at ${configPath}: expected a JSON object`);
+  }
+  if (parsed.providerMode !== undefined && !["auto", "cloud", "local"].includes(parsed.providerMode)) {
+    throw new MemoryConfigError("providerMode must be one of: auto, cloud, local");
+  }
+  const cloud = record(parsed.cloud, "cloud") || {};
+  const local = record(parsed.local, "local") || {};
+
+  const projectName = nonblankString(parsed.projectName, "projectName") ?? path.basename(projectRoot);
   const workspace =
-    parsed.workspace || process.env.ANTIGRAVITY_WORKSPACE || "default";
+    nonblankString(parsed.workspace, "workspace") ?? process.env.ANTIGRAVITY_WORKSPACE ?? "default";
 
   return {
     workspace,
     projectName,
     projectRoot,
-    providerMode: parsed.providerMode || "auto",
+    providerMode: parsed.providerMode ?? "auto",
     cloud: {
-      embeddingModel: parsed.cloud?.embeddingModel || "gemini-embedding-2",
-      generatorModel: parsed.cloud?.generatorModel || "gemini-2.5-flash",
-      dimensions: parsed.cloud?.dimensions || 768,
+      embeddingModel: nonblankString(cloud.embeddingModel, "cloud.embeddingModel") ?? "gemini-embedding-2",
+      generatorModel: nonblankString(cloud.generatorModel, "cloud.generatorModel") ?? "gemini-2.5-flash",
+      dimensions: positiveInteger(cloud.dimensions, "cloud.dimensions", 1_000_000) ?? 768,
       apiKey: process.env.GEMINI_API_KEY,
     },
     local: {
       embedderUrl:
-        parsed.local?.embedderUrl || "http://127.0.0.1:8145/v1/embeddings",
+        loopbackUrl(local.embedderUrl, "local.embedderUrl") ?? "http://127.0.0.1:8145/v1/embeddings",
       rerankerUrl:
-        parsed.local?.rerankerUrl || "http://127.0.0.1:8144/v1/rerank",
+        loopbackUrl(local.rerankerUrl, "local.rerankerUrl") ?? "http://127.0.0.1:8144/v1/rerank",
       generatorUrl:
-        parsed.local?.generatorUrl || "http://127.0.0.1:8147/v1/chat/completions",
-      generatorModels: parsed.local?.generatorModels || [
+        loopbackUrl(local.generatorUrl, "local.generatorUrl") ?? "http://127.0.0.1:8147/v1/chat/completions",
+      generatorModels: stringArray(local.generatorModels, "local.generatorModels") ?? [
         "qwen2.5-3b-instruct-q4_0",
         "microsoft_Phi-4-mini-instruct",
         "Llama-3.2-3B-Instruct-Q4_0",
         "gemma-4-E4B-it-Q4_0",
       ],
       activeGenerator:
-        parsed.local?.activeGenerator || "qwen2.5-3b-instruct-q4_0",
-      dimensions: parsed.local?.dimensions || 768,
+        nonblankString(local.activeGenerator, "local.activeGenerator") ?? "qwen2.5-3b-instruct-q4_0",
+      dimensions: positiveInteger(local.dimensions, "local.dimensions", 1_000_000) ?? 768,
     },
     dbPath: path.resolve(
       projectRoot,
-      parsed.dbPath || ".memory/project_memory.db"
+      nonblankString(parsed.dbPath, "dbPath") ?? ".memory/project_memory.db"
     ),
     sharedHivePath: (
-      parsed.sharedHivePath || "~/.antigravity/shards/global-hive.db"
+      nonblankString(parsed.sharedHivePath, "sharedHivePath") ?? "~/.antigravity/shards/global-hive.db"
     ).replace(/^~/, process.env.HOME || "/root"),
-    supportedExtensions: parsed.supportedExtensions || [
+    supportedExtensions: stringArray(parsed.supportedExtensions, "supportedExtensions") ?? [
       ".ts",
       ".tsx",
       ".js",
@@ -138,11 +241,17 @@ export function loadMemoryConfig(startDir = process.cwd()): MemoryConfig {
       "yarn.lock",
       "pnpm-lock.yaml",
     ],
-    candidateLimit: parsed.candidateLimit || 40,
-    defaultResultLimit: parsed.defaultResultLimit || 6,
-    rrfConstant: parsed.rrfConstant || 60,
-    halfLifeDays: parsed.halfLifeDays || 14,
-    disambiguationThreshold: parsed.disambiguationThreshold || 0.6,
-    minSimilarityThreshold: parsed.minSimilarityThreshold || 0.25,
+    excludedPathPrefixes:
+      relativePathPrefixes(parsed.excludedPathPrefixes, "excludedPathPrefixes") ?? [],
+    candidateLimit: finiteNumber(parsed.candidateLimit, "candidateLimit", 1, 10_000) ?? 40,
+    defaultResultLimit: finiteNumber(parsed.defaultResultLimit, "defaultResultLimit", 1, 1_000) ?? 6,
+    rrfConstant: finiteNumber(parsed.rrfConstant, "rrfConstant", 1, 10_000) ?? 60,
+    halfLifeDays: finiteNumber(parsed.halfLifeDays, "halfLifeDays", 0.01, 36_500) ?? 14,
+    disambiguationThreshold: finiteNumber(parsed.disambiguationThreshold, "disambiguationThreshold", -1, 1) ?? 0.6,
+    minSimilarityThreshold: finiteNumber(parsed.minSimilarityThreshold, "minSimilarityThreshold", -1, 1) ?? 0.25,
+    maxFileBytes: finiteNumber(parsed.maxFileBytes, "maxFileBytes", 1, 1024 ** 3) ?? 2 * 1024 * 1024,
+    maxFiles: finiteNumber(parsed.maxFiles, "maxFiles", 1, 1_000_000) ?? 50_000,
+    maxTotalBytes: finiteNumber(parsed.maxTotalBytes, "maxTotalBytes", 1, 16 * 1024 ** 3) ?? 512 * 1024 * 1024,
+    maxScanDepth: finiteNumber(parsed.maxScanDepth, "maxScanDepth", 1, 1_024) ?? 64,
   };
 }

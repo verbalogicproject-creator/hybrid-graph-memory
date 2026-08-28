@@ -20,6 +20,7 @@ export class HybridRetriever {
     totalSkipped: number;
     skippedByModel: Record<string, number>;
     matchingVectorsCount: number;
+    rerankerFallback?: string;
   };
 
   constructor(
@@ -44,6 +45,13 @@ export class HybridRetriever {
       );
     }
     const federation = options.federatedAdmission;
+    const allowedAdmissionStatuses = new Set(
+      options.filterAdmissionStatuses && options.filterAdmissionStatuses.length > 0
+        ? options.filterAdmissionStatuses
+        : options.includeCandidates
+          ? ["admitted", "candidate"]
+          : ["admitted"]
+    );
     if (retrievalMode === 'federated') {
       if (
         !federation ||
@@ -65,26 +73,6 @@ export class HybridRetriever {
       options.project ??
       (retrievalMode === 'strict' ? this.config.projectName : undefined);
     const targetModule = options.module;
-
-    // --- FG-RAG & Causal Memory Fast-Path ---
-    const causalContexts: RetrievedContext[] = [];
-    const isErrorQuery = query.toLowerCase().includes("error") || query.toLowerCase().includes("timeout") || query.toLowerCase().includes("failed");
-    if (intent === "operational" || isErrorQuery) {
-      const receipts = (this.db as any).getReceipts();
-      for (const r of receipts) {
-        if (query.toLowerCase().includes(r.incidentType.toLowerCase()) || (r.patchHash && query.includes(r.patchHash))) {
-          causalContexts.push({
-            id: r.id,
-            modality: "text",
-            content: `[UNVERIFIED LEGACY EVIDENCE REFERENCE] Incident Type: ${r.incidentType} | Framework: ${r.targetFramework}\nEvidence ID: ${r.id}\nHistorical patch available: ${r.patchHash ? 'YES' : 'NO'}\n(NOTE: This is a local memory reference, not an authoritative SAG receipt. Does not grant L3/L4/L5 verification.)`,
-            sourceType: "legacy_evidence_reference",
-            finalScore: 1.5, // FG-RAG Over-boost
-            reason: `Legacy Evidence Reference (Incident: ${r.incidentType})`,
-            metadata: { patchHash: r.patchHash }
-          });
-        }
-      }
-    }
 
     const matchesNamespace = (item: {
       workspace?: string;
@@ -119,18 +107,14 @@ export class HybridRetriever {
       if (targetModule && item.module !== targetModule) {
         return false;
       }
+      if (!allowedAdmissionStatuses.has((item.admissionStatus || "admitted") as any)) {
+        return false;
+      }
       if (
         options.filterMemoryTypes &&
         options.filterMemoryTypes.length > 0 &&
         item.memoryType &&
         !options.filterMemoryTypes.includes(item.memoryType as any)
-      ) {
-        return false;
-      }
-      if (
-        options.filterAdmissionStatuses &&
-        options.filterAdmissionStatuses.length > 0 &&
-        !options.filterAdmissionStatuses.includes((item.admissionStatus || "admitted") as any)
       ) {
         return false;
       }
@@ -370,6 +354,7 @@ export class HybridRetriever {
     const allRelations = this.db.getAllRelations({
       workspace: targetWorkspace,
       project: targetProject,
+      includeInferredRelations: options.includeInferredRelations,
     });
     const queryTokens = query.toLowerCase().split(/\s+/);
 
@@ -434,6 +419,7 @@ export class HybridRetriever {
           const rels = this.db.getRelationsForNode(symbolOrFile, {
             workspace: targetWorkspace,
             project: targetProject,
+            includeInferredRelations: options.includeInferredRelations,
           });
           if (rels.length > 0) {
             relatedNodes = rels.map((r) => ({
@@ -519,17 +505,62 @@ export class HybridRetriever {
         const docs = topPool.map((c) => c.content.slice(0, 500));
         const reranked = await this.reranker.rerank(query, docs);
 
+        const seen = new Set<number>();
         for (const r of reranked) {
-          if (topPool[r.index]) {
-            topPool[r.index].rerankScore = r.relevanceScore;
-            topPool[r.index].reason += ` + Neural Rerank (BGE Score: ${r.relevanceScore.toFixed(2)})`;
+          if (
+            !Number.isInteger(r.index) ||
+            r.index < 0 ||
+            r.index >= topPool.length ||
+            !Number.isFinite(r.relevanceScore) ||
+            seen.has(r.index)
+          ) {
+            throw new Error("Reranker returned an invalid or duplicate result index");
           }
+          seen.add(r.index);
+          topPool[r.index].rerankScore = r.relevanceScore;
+          topPool[r.index].reason += ` + Neural Rerank (BGE Score: ${r.relevanceScore.toFixed(2)})`;
         }
-      } catch (e) {}
+
+        const rerankedPrefix = topPool
+          .map((candidate, originalIndex) => ({ candidate, originalIndex }))
+          .sort((a, b) =>
+            (b.candidate.rerankScore ?? Number.NEGATIVE_INFINITY) -
+              (a.candidate.rerankScore ?? Number.NEGATIVE_INFINITY) ||
+            a.originalIndex - b.originalIndex
+          )
+          .map(({ candidate }) => candidate);
+        candidatePool = [...rerankedPrefix, ...candidatePool.slice(topPool.length)];
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (this.lastSearchStats) this.lastSearchStats.rerankerFallback = message;
+        console.warn(`[memory] Reranker fallback: ${message}`);
+      }
     }
 
-    // 9. Limit final results & Record access tracking
+    // 9. Limit final results and apply the semantic-evidence gate.
     const finalResults = candidatePool.slice(0, limit);
+
+    const normalizedQuery = query.trim().toLowerCase();
+    const exactEvidence = finalResults.some((result) =>
+      Boolean(
+        (detectedTriggerTag && result.triggerTags?.includes(detectedTriggerTag)) ||
+        (result.symbol && result.symbol.trim().toLowerCase() === normalizedQuery) ||
+        (result.heading && result.heading.trim().toLowerCase() === normalizedQuery)
+      )
+    );
+    const topSemanticScore = allSemanticMatches[0]?.score;
+
+    const { enforceDisambiguationGate } = require("./disambiguation");
+    const disambiguationFlags = enforceDisambiguationGate(finalResults, {
+      exactEvidence,
+      topSemanticScore,
+      threshold: this.config.disambiguationThreshold,
+    });
+    if (disambiguationFlags.length > 0) {
+      return disambiguationFlags;
+    }
+
+    // Record access only after the gate accepts real retrieval results.
     const chunkIdsToRecord: string[] = [];
     const memoryIdsToRecord: string[] = [];
 
@@ -543,16 +574,6 @@ export class HybridRetriever {
 
     if (chunkIdsToRecord.length > 0 || memoryIdsToRecord.length > 0) {
       this.db.recordAccess(chunkIdsToRecord, memoryIdsToRecord);
-    }
-
-    // Legacy rows have no namespace provenance, so generic retrieval cannot
-    // surface them. Use the explicit read-only evidence-reference lookup.
-    
-    // Disambiguation Gate
-    const { enforceDisambiguationGate } = require("./disambiguation");
-    const disambiguationFlags = enforceDisambiguationGate(finalResults, 0.60);
-    if (disambiguationFlags.length > 0) {
-      return disambiguationFlags;
     }
 
     return finalResults;

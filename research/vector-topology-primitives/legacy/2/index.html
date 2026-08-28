@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Topological RAG Research Hub (Fact-Audited)</title>
+    
+    <!-- Tailwind CSS for mobile-first styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- MathJax for LaTeX rendering -->
+    <script>
+        MathJax = {
+            tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+    
+    <!-- Plotly.js for 3D Manifold Visualization -->
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    
+    <!-- D3.js for Voronoi Visualization -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    
+    <!-- Highlight.js for Python syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        .viz-container { border: 1px solid #e2e8f0; border-radius: 0.5rem; background: #fff; overflow: hidden; }
+    </style>
+</head>
+<body class="text-slate-800 antialiased">
+
+    <div class="max-w-4xl mx-auto p-4 sm:p-6 lg:p-8">
+        
+        <header class="mb-10 border-b border-slate-300 pb-6">
+            <h1 class="text-3xl font-bold text-slate-900 mb-2">Topological RAG Research Hub</h1>
+            <p class="text-slate-600">Interactive artifacts, methodology draft, and core routing logic.</p>
+            <div class="mt-4 bg-amber-50 border border-amber-300 text-amber-900 text-sm rounded-lg p-3">
+                <strong>Audit note:</strong> This version replaces unverified knot-theory metaphors with hedged, falsifiable engineering language. Claims are labeled as either established research or untested architectural hypothesis.
+            </div>
+        </header>
+
+        <!-- SECTION 1: THE PAPER -->
+        <section class="mb-12">
+            <h2 class="text-2xl font-semibold mb-4 text-slate-800">1. Methodology Draft</h2>
+            <div class="prose prose-slate max-w-none bg-white p-6 rounded-lg shadow-sm border border-slate-200">
+                <h3 class="text-xl font-bold mb-2">Title: Topological Retrieval: A Graph-Based Approximation of Semantic Manifold Structure for RAG Architectures</h3>
+                
+                <h4 class="font-bold mt-4 mb-2">Abstract</h4>
+                <p class="mb-4">Current Retrieval-Augmented Generation (RAG) systems rely predominantly on Euclidean distance ($L_2$) or cosine similarity to retrieve context from dense vector databases, implicitly treating the embedding space as locally flat. The Manifold Hypothesis, a well-established concept in machine learning, holds that high-dimensional real-world data tends to concentrate near lower-dimensional manifolds embedded in the ambient space ($\mathbb{R}^d$). Building on this established premise &mdash; not as strict mathematical fact about LLM latent spaces specifically, but as a reasonable working hypothesis &mdash; we propose that pure Euclidean top-k retrieval can miss locally-relevant context that lies along non-linear paths in the embedding space.</p>
+                <p class="mb-4">This paper introduces a <strong>Graph-Augmented RAG</strong> framework. We propose, as an untested architectural hypothesis, that Graph-RAG edge structures (built from Microsoft's established Graph-RAG methodology) can serve as a discrete proxy for manifold-constrained shortest paths between chunks. We also introduce a multi-agent context-splitting mechanism for handling <strong>overlapping but distinct semantic clusters</strong> in retrieved subgraphs &mdash; a pattern we name descriptively rather than claiming any formal relationship to knot theory.</p>
+
+                <h4 class="font-bold mt-6 mb-2">1. Introduction</h4>
+                <p class="mb-4">When an AI agent needs context, it calculates the distance between a query vector and surrounding document embeddings. Yet, as AI architectures scale into multi-agent systems, a foundational flaw in standard retrieval has become apparent: we are using flat-space mathematics to navigate a curved-space reality.</p>
+                
+                <h5 class="font-semibold mt-4">1.1 The Manifold Hypothesis and Graph-Approximated Retrieval</h5>
+                <p class="mb-4">The Manifold Hypothesis is a well-cited concept describing the general tendency of high-dimensional data to concentrate near lower-dimensional structure. We use it here as motivation, not proof, for a design choice: an orchestration system can approximate a "shortest path along the data structure" by computing shortest paths over a Graph-RAG edge set rather than raw Euclidean distance alone. This is a graph-shortest-path (Dijkstra) technique, not a rigorously derived geodesic on a proven Riemannian manifold &mdash; we use the term "geodesic-style routing" loosely, as an analogy for intuition, not as a claim of mathematical equivalence.</p>
+
+                <h5 class="font-semibold mt-4">1.2 Overlapping Context Clusters and Multi-Agent Splitting</h5>
+                <p class="mb-4">In retrieval graphs, we sometimes encounter <strong>overlapping context clusters</strong>: retrieved subgraphs that split into two or more densely-connected but semantically distinct communities (detectable via standard community-detection algorithms such as Louvain). Standard vector search can average these into a homogenized, degraded context. We propose routing each detected cluster to a separate agent for isolated processing, then synthesizing results. This is a practical multi-agent dispatch pattern; it has no formal mathematical relationship to knot theory or Reidemeister moves, and any such naming in earlier drafts has been removed.</p>
+            </div>
+        </section>
+
+        <!-- SECTION 2: INTERACTIVE VISUALIZATIONS -->
+        <section class="mb-12">
+            <h2 class="text-2xl font-semibold mb-4 text-slate-800">2. Interactive Visualizations</h2>
+            
+            <div class="grid grid-cols-1 gap-8">
+                <!-- Visual 1: 3D Manifold -->
+                <div class="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
+                    <h3 class="text-lg font-bold mb-2">The Latent Manifold (Swiss Roll)</h3>
+                    <p class="text-sm text-slate-600 mb-4">A 3D representation of a 2D data manifold. Euclidean search draws a straight line through the empty space between folds. Topological RAG follows the surface.</p>
+                    <div id="manifold-plot" class="viz-container h-[400px] w-full"></div>
+                </div>
+
+                <!-- Visual 2: Voronoi Vector Space -->
+                <div class="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
+                    <h3 class="text-lg font-bold mb-2">Vector Space Partitioning (Voronoi)</h3>
+                    <p class="text-sm text-slate-600 mb-4">Hover over the space to act as the "Query Vector." The highlighted cell represents the nearest neighbor boundary in standard flat retrieval.</p>
+                    <div id="voronoi-plot" class="viz-container h-[400px] w-full relative bg-slate-50 cursor-crosshair"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION 3: CODEBASE -->
+        <section class="mb-12">
+            <h2 class="text-2xl font-semibold mb-4 text-slate-800">3. Implementation: Graph-Shortest-Path Router</h2>
+            <p class="mb-4 text-slate-700">This Python script bridges a standard vector store (e.g., ChromaDB) and a NetworkX relationship graph, allowing retrieval to walk graph edges in addition to raw vector similarity.</p>
+            
+            <div class="rounded-lg overflow-hidden shadow-sm border border-slate-700 bg-[#282c34]">
+                <pre><code class="language-python">import networkx as nx
+import numpy as np
+from typing import List, Dict, Any
+
+class GraphShortestPathRouter:
+    def __init__(self, vector_store, knowledge_graph: nx.Graph):
+        """
+        Initializes the router with a standard vector store and a NetworkX graph.
+        The graph should already be populated where:
+        - Nodes correspond to chunk IDs in the vector store.
+        - Edges represent extracted semantic relationships.
+        """
+        self.vector_store = vector_store
+        self.graph = knowledge_graph
+        self._calculate_manifold_weights()
+
+    def _calculate_manifold_weights(self):
+        """
+        Calculates the weight of every edge in the graph based on the Euclidean distance
+        between the two connected nodes' high-precision embeddings.
+        This weights edges by embedding distance as an approximation of local semantic proximity (not a proven manifold curvature measurement).
+        """
+        for u, v in self.graph.edges():
+            vec_u = self.vector_store.get_embedding(u)
+            vec_v = self.vector_store.get_embedding(v)
+            
+            # Calculate Euclidean distance as the base weight for the edge
+            distance = np.linalg.norm(np.array(vec_u) - np.array(vec_v))
+            
+            # The edge weight represents the "physical" distance along the manifold's surface
+            self.graph[u][v]['weight'] = distance
+
+    def _get_entry_point(self, query_embedding: List[float]) -> str:
+        """
+        Uses standard vector search to find the single closest point on the manifold.
+        This is our 'drop-in' point.
+        """
+        results = self.vector_store.search(query_embedding, top_k=1)
+        return results[0]['id']
+
+    def retrieve_graph_context(self, query_embedding: List[float], max_distance: float = 2.0, max_nodes: int = 5) -> List[Dict[str, Any]]:
+        """
+        Core graph-shortest-path retrieval function.
+        Instead of returning only the top-k vectors by raw Euclidean distance,
+        it walks the graph edges from an entry point (an engineering heuristic,
+        not a proven geodesic computation).
+        """
+        # Step 1: Find nearest entry point via standard vector search
+        entry_node_id = self._get_entry_point(query_embedding)
+        
+        # Step 2: Traverse the graph using Dijkstra's shortest path
+        # This calculates the distance *along the edges*, avoiding spatial shortcuts.
+        path_lengths = nx.single_source_dijkstra_path_length(
+            self.graph, 
+            source=entry_node_id, 
+            weight='weight'
+        )
+        
+        # Step 3: Filter the context based on topological constraints
+        graph_context = []
+        for node_id, path_dist in path_lengths.items():
+            # Stop condition 1: We've traveled too far along the manifold
+            if path_dist > max_distance:
+                continue
+                
+            # Stop condition 2: We've gathered enough nodes
+            if len(graph_context) >= max_nodes:
+                break
+                
+            node_data = self.vector_store.get_metadata(node_id)
+            graph_context.append({
+                "id": node_id,
+                "text": node_data['text'],
+                "graph_path_distance": path_dist
+            })
+            
+        return graph_context</code></pre>
+            </div>
+        </section>
+
+    </div>
+
+    <!-- Scripts for Visualizations & Highlighting -->
+    <script>
+        // 1. Initialize Syntax Highlighting
+        hljs.highlightAll();
+
+        // 2. Generate 3D Manifold (Swiss Roll) using Plotly
+        function renderManifold() {
+            const t = [];
+            const x = [];
+            const y = [];
+            const z = [];
+            
+            // Generate data points for a Swiss Roll topology
+            for (let i = 0; i < 1500; i++) {
+                let current_t = 1.5 * Math.PI * (1 + 2 * Math.random());
+                let current_y = 21 * Math.random();
+                
+                t.push(current_t);
+                x.push(current_t * Math.cos(current_t));
+                y.push(current_y);
+                z.push(current_t * Math.sin(current_t));
+            }
+
+            const trace = {
+                x: x,
+                y: y,
+                z: z,
+                mode: 'markers',
+                marker: {
+                    size: 4,
+                    color: t, // Color by position along the swiss-roll curve parameter
+                    colorscale: 'Viridis',
+                    opacity: 0.8
+                },
+                type: 'scatter3d'
+            };
+
+            const layout = {
+                margin: { l: 0, r: 0, b: 0, t: 0 },
+                scene: {
+                    xaxis: { visible: false },
+                    yaxis: { visible: false },
+                    zaxis: { visible: false },
+                    camera: { eye: { x: 1.5, y: 1.5, z: 1.2 } }
+                }
+            };
+
+            Plotly.newPlot('manifold-plot', [trace], layout, {responsive: true});
+        }
+        renderManifold();
+
+        // 3. Generate 2D Voronoi Vector Search using D3.js
+        function renderVoronoi() {
+            const container = document.getElementById('voronoi-plot');
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            
+            const numPoints = 40;
+            const points = Array.from({length: numPoints}, () => [Math.random() * width, Math.random() * height]);
+            
+            const svg = d3.select("#voronoi-plot").append("svg")
+                .attr("width", width)
+                .attr("height", height);
+
+            const delaunay = d3.Delaunay.from(points);
+            const voronoi = delaunay.voronoi([0, 0, width, height]);
+
+            // Draw cells
+            const paths = svg.append("g")
+                .selectAll("path")
+                .data(points)
+                .join("path")
+                .attr("d", (d, i) => voronoi.renderCell(i))
+                .attr("fill", "transparent")
+                .attr("stroke", "#cbd5e1")
+                .attr("stroke-width", 1);
+
+            // Draw points (document embeddings)
+            svg.append("g")
+                .selectAll("circle")
+                .data(points)
+                .join("circle")
+                .attr("cx", d => d[0])
+                .attr("cy", d => d[1])
+                .attr("r", 4)
+                .attr("fill", "#475569");
+
+            // Query Point Indicator
+            const queryPoint = svg.append("circle")
+                .attr("r", 6)
+                .attr("fill", "#ef4444")
+                .style("opacity", 0)
+                .style("pointer-events", "none"); // Let mouse events pass through
+
+            // Interaction
+            container.addEventListener('mousemove', (e) => {
+                const rect = container.getBoundingClientRect();
+                const mx = e.clientX - rect.left;
+                const my = e.clientY - rect.top;
+
+                // Find nearest neighbor (standard RAG Euclidean distance)
+                const index = delaunay.find(mx, my);
+
+                paths.attr("fill", (d, i) => i === index ? "#bfdbfe" : "transparent");
+                queryPoint.attr("cx", mx).attr("cy", my).style("opacity", 1);
+            });
+            
+            container.addEventListener('mouseleave', () => {
+                paths.attr("fill", "transparent");
+                queryPoint.style("opacity", 0);
+            });
+        }
+        
+        // Ensure Voronoi renders correctly after DOM layout
+        setTimeout(renderVoronoi, 100);
+        
+        // Handle window resize for D3
+        window.addEventListener('resize', () => {
+            document.getElementById('voronoi-plot').innerHTML = '';
+            renderVoronoi();
+        });
+    </script>
+</body>
+</html>

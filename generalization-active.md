@@ -1,5 +1,11 @@
 # Beyond Code: Generalized Epistemology and Active Memory
 
+> **Historical research vision — non-evidence.** This file explores possible
+> future applications. It does not establish a universal ontology, autonomous
+> reasoning, legal/medical correctness, causal inference, or real-world anomaly
+> detection. Such uses require domain experts, validated schemas, labeled data,
+> privacy controls, and application-specific evaluation.
+
 This report details the absolute bleeding edge of the Hybrid Graph Memory architecture, moving beyond software engineering into universal knowledge representation and autonomous reasoning.
 
 ## 1. Beyond Code: Generalized Epistemology

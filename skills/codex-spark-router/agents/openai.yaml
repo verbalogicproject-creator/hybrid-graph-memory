@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex Spark Router"
+  short_description: "Route exact coding tasks to Codex-Spark"
+  default_prompt: "Use $codex-spark-router to classify and safely delegate this coding task."

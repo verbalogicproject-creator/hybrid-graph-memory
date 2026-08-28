@@ -110,10 +110,19 @@ async function main() {
     jsonrpc: "2.0",
     id: "read-only-control",
     method: "tools/call",
-    params: { name: "agy_ingest_operational_asset", arguments: {} },
+    params: {
+      name: "agy_ingest_operational_asset",
+      arguments: {
+        type: "rule",
+        title: "candidate",
+        content: "review me",
+        triggerTags: ["review"],
+        targetFramework: "test",
+        author: "test",
+      },
+    },
   });
-  assert.equal(mutationAttempt.error?.code, -32600);
-  (readOnlyMcp as any).rl.close();
+  assert.equal(mutationAttempt.error?.code, -32001);
 
   console.log("fractal alignment: strict and federated controls pass");
 }
