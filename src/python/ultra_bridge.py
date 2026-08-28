@@ -7,7 +7,7 @@ import uuid
 import os
 
 # Append the downloaded ULTRA model directory to path
-sys.path.append('/storage/emulated/0/models/ultra-50g')
+sys.path.append('/root/models/ultra-50g')
 
 try:
     import torch
@@ -97,7 +97,7 @@ def run_link_prediction(entity2id, relation2id, src, dst, etypes, use_pyg=False)
 
         # 1. Load actual foundation model weights
         # (Assuming the model path exists. Adjust path logic for production environments)
-        model_path = '/storage/emulated/0/models/ultra-50g'
+        model_path = '/root/models/ultra-50g'
         if not os.path.exists(model_path):
             print(f"[System 2] Model weights not found at {model_path}. Skipping.")
             return []
