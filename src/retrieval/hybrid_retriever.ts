@@ -547,6 +547,14 @@ export class HybridRetriever {
 
     // Legacy rows have no namespace provenance, so generic retrieval cannot
     // surface them. Use the explicit read-only evidence-reference lookup.
+    
+    // Disambiguation Gate
+    const { enforceDisambiguationGate } = require("./disambiguation");
+    const disambiguationFlags = enforceDisambiguationGate(finalResults, 0.60);
+    if (disambiguationFlags.length > 0) {
+      return disambiguationFlags;
+    }
+
     return finalResults;
   }
 }

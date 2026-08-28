@@ -340,7 +340,6 @@ antigravity-memory-os/
 │   │       └── gemini.ts         # Google Gemini embedding provider
 │   ├── ast/
 │   │   ├── mapper.ts             # Generic TypeScript/JavaScript AST parser
-│   │   └── analyzers/            # Pluggable language parsers (Python, Rust, Go)
 │   ├── retrieval/
 │   │   ├── hybrid_retriever.ts
 │   │   ├── rank_fusion.ts        # Elo time decay + RRF
@@ -348,7 +347,6 @@ antigravity-memory-os/
 │   ├── mcp/
 │   │   └── server.ts             # Model Context Protocol (MCP stdio)
 │   └── hooks/
-│       └── git_observer.ts       # Post-commit observer
 ├── package.json
 └── tsconfig.json
 ```

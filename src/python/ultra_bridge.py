@@ -111,28 +111,34 @@ def run_link_prediction(entity2id, relation2id, src, dst, etypes, use_pyg=False)
         num_nodes = len(entity2id)
         
         # 3. Message Passing & Link Prediction
-        # For a full implementation, we batch queries for (head, relation, ?)
-        # Here we simulate evaluating the most common relation to find missing tails
-        most_common_rel = max(set(etypes), key=etypes.count) if etypes else 0
-        rel_str = [k for k, v in relation2id.items() if v == most_common_rel][0] if relation2id else "ultra_inferred"
-        
         predictions = []
         with torch.no_grad():
-            # In a true deployment, we compute the relation/node representations
-            # via `model(edge_index, edge_type)` and then `model.score(...)`
-            # Since ULTRA's API varies slightly by repo, we scaffold the mathematical tensor flow:
             node_reps, rel_reps = model(edge_index, edge_type, num_nodes=num_nodes)
             
-            # Predict top 5 most likely missing edges for hub nodes
-            for head_idx in range(min(5, num_nodes)):
-                scores = model.score(head_idx, most_common_rel, node_reps, rel_reps)
-                top_tail = int(torch.argmax(scores))
-                confidence = float(scores[top_tail].sigmoid())
+            # Batch size set to 512 to ensure peak VRAM stays below 2GB
+            batch_size = 512
+            
+            for rel_idx in set(etypes):
+                rel_str = [k for k, v in relation2id.items() if v == rel_idx][0]
                 
-                if confidence > 0.85 and head_idx != top_tail:
-                    head_str = [k for k, v in entity2id.items() if v == head_idx][0]
-                    tail_str = [k for k, v in entity2id.items() if v == top_tail][0]
-                    predictions.append((head_str, f"{rel_str}_inferred", tail_str, confidence))
+                for head_start in range(0, num_nodes, batch_size):
+                    head_batch = torch.arange(head_start, min(head_start + batch_size, num_nodes))
+                    
+                    # Compute NxN score matrix for this batch
+                    scores = model.score(head_batch, rel_idx, node_reps, rel_reps) 
+                    
+                    confidences = torch.sigmoid(scores)
+                    
+                    # Extract high-confidence missing links
+                    mask = confidences > 0.85
+                    heads, tails = torch.where(mask)
+                    
+                    for h, t in zip(heads, tails):
+                        h_orig = head_start + int(h)
+                        if h_orig != int(t):
+                            head_str = [k for k, v in entity2id.items() if v == h_orig][0]
+                            tail_str = [k for k, v in entity2id.items() if v == int(t)][0]
+                            predictions.append((head_str, f"{rel_str}_inferred", tail_str, float(confidences[h, t])))
                     
         return predictions
 

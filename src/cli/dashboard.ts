@@ -31,11 +31,12 @@ export async function runDashboard(engine: MemoryEngine) {
       console.log("");
     } else if (p.action === "sleep") {
       console.log("\n💤 Initiating Active Consolidation (Sleep Cycle)...");
-      console.log("Analyzing recent episodic memories and causal receipts...");
-      await new Promise(r => setTimeout(r, 1500));
-      console.log("Distilling noisy logs into heuristic rules...");
-      await new Promise(r => setTimeout(r, 1000));
-      console.log("✅ Consolidation complete. Heuristics added to global-hive.db (Simulated).\n");
+      try {
+        const stats = engine.db.consolidateToGlobalHive();
+        console.log(`✅ Consolidation complete. Scrubbed and merged ${stats.scrubbed} heuristics into global-hive.db.\n`);
+      } catch (err: any) {
+        console.error(`❌ Consolidation failed: ${err.message}\n`);
+      }
     }
   }
 }

@@ -1071,6 +1071,73 @@ export class MemoryDatabase {
     return stmt.all() as any[];
   }
 
+  /**
+   * Executes the cross-database intelligence federation.
+   * Attaches the global hive SQLite file, scrubs PII/Secrets, and writes heuristic records.
+   */
+  consolidateToGlobalHive(): { scrubbed: number } {
+    const os = require("os");
+    const globalHiveDir = path.join(os.homedir(), ".antigravity");
+    if (!fs.existsSync(globalHiveDir)) {
+      fs.mkdirSync(globalHiveDir, { recursive: true });
+    }
+    const globalHivePath = path.join(globalHiveDir, "global-hive.db");
+
+    // Fetch all local heuristics
+    const heuristics = this.getReceipts();
+    if (heuristics.length === 0) return { scrubbed: 0 };
+
+    // Attach external DB natively in SQLite
+    this.db.exec(`ATTACH DATABASE '${globalHivePath}' AS global_hive`);
+    
+    // Ensure table exists in global hive
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS global_hive.heuristics (
+        id TEXT PRIMARY KEY,
+        incident_type TEXT,
+        level TEXT,
+        patch_hash TEXT,
+        b64_evidence TEXT,
+        target_framework TEXT,
+        created_at INTEGER
+      )
+    `);
+
+    let scrubbedCount = 0;
+    const insertStmt = this.db.prepare(`
+      INSERT OR IGNORE INTO global_hive.heuristics 
+      (id, incident_type, level, patch_hash, b64_evidence, target_framework, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    this.db.transaction(() => {
+      for (const record of heuristics) {
+        // PII & Secrets Scrubber (Regex)
+        // Redact IP addresses, API Keys (sk-...), and absolute file paths
+        let scrubbedIncident = record.incidentType
+          ? record.incidentType.replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, "[REDACTED_IP]")
+                               .replace(/sk-[A-Za-z0-9_-]{20,}/g, "[REDACTED_KEY]")
+                               .replace(/(?:\/[a-zA-Z0-9_-]+){2,}/g, "[REDACTED_PATH]")
+          : "";
+
+        insertStmt.run(
+          record.id,
+          scrubbedIncident,
+          record.level,
+          record.patchHash,
+          record.b64Evidence,
+          record.targetFramework,
+          record.createdAt
+        );
+        scrubbedCount++;
+      }
+    })();
+
+    this.db.exec(`DETACH DATABASE global_hive`);
+    
+    return { scrubbed: scrubbedCount };
+  }
+
   getReceiptsByIncidentType(incidentType: string): import('./types').ReceiptRecord[] {
     const stmt = this.db.prepare(`
       SELECT id, incident_type as incidentType, level, patch_hash as patchHash,

@@ -516,9 +516,22 @@ export class MemoryEngine {
       // (For this prototype, we'll map the node names to chunk contents)
       const communityNodes = JSON.parse(fs.readFileSync(path.join(this.config.dbPath, "../multi_agent_communities.json"), "utf8"))[commId] as string[];
       
+      // Compute Degree Centrality to find the most structurally important nodes
+      const relations = this.db.getAllRelations();
+      const scores = new Map<string, number>();
+      communityNodes.forEach(n => scores.set(n, 0));
+      
+      relations.forEach(rel => {
+        if (scores.has(rel.fromId)) scores.set(rel.fromId, (scores.get(rel.fromId) || 0) + 1);
+        if (scores.has(rel.toId)) scores.set(rel.toId, (scores.get(rel.toId) || 0) + 1);
+      });
+      
+      // Sort nodes by their structural gravity (degree centrality)
+      const topNodes = communityNodes.sort((a, b) => (scores.get(b) || 0) - (scores.get(a) || 0)).slice(0, 5);
+      
       const isolatedChunks = allChunks.filter((c: any) => 
-        communityNodes.includes(c.symbolName || "") || communityNodes.includes(path.basename(c.fileId))
-      ).slice(0, 5); // Take top 5 from this community to fit context window
+        topNodes.includes(c.symbolName || "") || topNodes.includes(path.basename(c.fileId))
+      );
 
       const contextText = isolatedChunks.map((c: any, i: number) => `[Node: ${c.symbolName || c.fileId}]\n${c.content}`).join("\n\n");
 
