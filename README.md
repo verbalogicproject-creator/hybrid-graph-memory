@@ -430,7 +430,7 @@ Any agent or engineer modifying this system **MUST** preserve the following ten 
 
 **Status:** Deployed (v2 Upgrade)
 
-To bypass the mathematical "Curse of Dimensionality" (hubness and distance concentration in standard k-NN RAG), the Memory OS implements a **Topological Multi-Agent Architecture**. This maps the theory of Simplicial Complexes and Hodge Laplacian diffusion directly onto our SQLite stack.
+To bypass the mathematical "Curse of Dimensionality" (hubness and distance concentration in standard k-NN RAG), the Memory OS implements a **Topological Multi-Agent Architecture**. This maps network-theoretic graph partitioning directly onto our SQLite stack, serving as a stepping stone toward full Simplicial Complex and Hodge Laplacian diffusion.
 
 ### 🧠 The Mathematical Pipeline
 1. **Un-Quantized Edge Ingestion:** AST dependencies are extracted and stored as persistent, un-quantized FP16 edges in the SQLite `relations` table. This acts as our ground-truth topological manifold and prevents INT4 quantization distortion during retrieval.
@@ -447,4 +447,4 @@ To bypass the mathematical "Curse of Dimensionality" (hubness and distance conce
    - Routes the resulting sub-graph insights to a `Synthesizer Agent` for final cohesive output.
 
 ### 🔬 Empirical Falsification
-Run `npx tsx src/evaluation/prove_topology.ts` to empirically verify the context-isolation. Standard k-NN retrieval collapses into massive noise hairballs (e.g., 1400+ disconnected edges), while Louvain topological routing maintains strict manifold integrity (0% noise inclusion).
+Run `npx tsx src/evaluation/prove_topology.ts` to empirically verify the context-isolation. Standard k-NN retrieval collapses into massive noise hairballs (e.g., 1400+ disconnected edges), while Louvain modularity-based routing maintains strict manifold integrity (0% noise inclusion).

@@ -121,7 +121,7 @@ def main():
             cur.execute("""
                 INSERT INTO relations 
                 (id, from_id, relation, to_id, source, weight, confidence, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (edge_id, head, rel, tail, "ultra_inferred", 1.0, confidence, timestamp))
             print(f"  -> Added Edge: {head} --({rel})--> {tail} (Confidence: {confidence})")
         conn.commit()

@@ -392,6 +392,52 @@ export class MemoryEngine {
   }
 
   /**
+   * STEP 1: The Semantic Router
+   * Implements Topological Multi-Agent Routing.
+   * Finds the exact semantic communities (sub-graphs) a query touches.
+   */
+  async agenticSearch(query: string): Promise<{
+    targetCommunities: string[];
+    routingReasoning: string[];
+    nodesToCheckout: string[];
+  }> {
+    await this.ensureInitialized();
+    const communitiesPath = path.join(this.config.dbPath, "../multi_agent_communities.json");
+    if (!fs.existsSync(communitiesPath)) {
+      throw new Error("multi_agent_communities.json not found. Run System 2 worker first.");
+    }
+    const communities: Record<string, string[]> = JSON.parse(fs.readFileSync(communitiesPath, "utf8"));
+
+    // 1. Vector Search for the Entry Points
+    const entryPoints = await this.search(query, { limit: 5 });
+    const targetCommunities = new Set<string>();
+    const routingReasoning: string[] = [];
+    const nodesToCheckout = new Set<string>();
+
+    // 2. Map entry points to Louvain communities
+    for (const context of entryPoints) {
+      const nodeId = context.symbol || path.basename(context.filepath || "");
+      for (const [commId, nodes] of Object.entries(communities)) {
+        if (nodes.includes(nodeId)) {
+          if (!targetCommunities.has(commId)) {
+            targetCommunities.add(commId);
+            routingReasoning.push(`Query hits [${nodeId}] -> Routing to ${commId}`);
+          }
+          // Add all nodes from this community to the checkout payload
+          for (const n of nodes) nodesToCheckout.add(n);
+          break;
+        }
+      }
+    }
+
+    return {
+      targetCommunities: Array.from(targetCommunities),
+      routingReasoning,
+      nodesToCheckout: Array.from(nodesToCheckout),
+    };
+  }
+
+  /**
    * Generates an end-to-end RAG answer using local on-device LLM (Qwen / Phi-4 / Llama-3.2 / Gemma-4)
    */
   async generateRAGAnswer(
@@ -429,6 +475,80 @@ export class MemoryEngine {
     return {
       answer,
       contexts,
+      modelUsed: model || this.config.local.activeGenerator,
+    };
+  }
+
+  /**
+   * STEP 2 & 3: The Multi-Agent Orchestrator & Synthesizer
+   * Executes the isolated parallel sub-agent reasoning.
+   */
+  async generateAgenticRAGAnswer(
+    query: string,
+    model?: string
+  ): Promise<{ answer: string; synthesisLog: string[]; modelUsed: string }> {
+    await this.ensureInitialized();
+    if (!this.localGenerator) throw new Error("Local generator not initialized.");
+
+    // 1. Semantic Router (Find Communities)
+    const route = await this.agenticSearch(query);
+    const synthesisLog: string[] = [];
+    synthesisLog.push(...route.routingReasoning);
+
+    // If no communities found, fallback to standard RAG
+    if (route.targetCommunities.length === 0) {
+      synthesisLog.push("No communities resolved. Falling back to standard RAG.");
+      const res = await this.generateRAGAnswer(query, model);
+      return { answer: res.answer, synthesisLog, modelUsed: res.modelUsed };
+    }
+
+    synthesisLog.push(`Spawning ${route.targetCommunities.length} parallel Edge Agents...`);
+
+    // Fetch actual chunk contents for the nodes to pass to the LLM
+    // To prevent context overflow per agent, we only grab chunks that physically exist in the DB.
+    // In a production env, we'd rank them by graph centrality.
+    const allChunks = this.db.getAllChunksWithEmbeddings();
+
+    // 2. Parallel Edge Agents (Sub-Graph Checkouts)
+    const agentPromises = route.targetCommunities.map(async (commId, idx) => {
+      // Isolate context strictly to this community
+      // To simulate retrieving the manifold, we filter the DB for nodes in this community.
+      // (For this prototype, we'll map the node names to chunk contents)
+      const communityNodes = JSON.parse(fs.readFileSync(path.join(this.config.dbPath, "../multi_agent_communities.json"), "utf8"))[commId] as string[];
+      
+      const isolatedChunks = allChunks.filter((c: any) => 
+        communityNodes.includes(c.symbolName || "") || communityNodes.includes(path.basename(c.fileId))
+      ).slice(0, 5); // Take top 5 from this community to fit context window
+
+      const contextText = isolatedChunks.map((c: any, i: number) => `[Node: ${c.symbolName || c.fileId}]\n${c.content}`).join("\n\n");
+
+      const systemPrompt = `You are Edge Agent ${idx + 1}. You are assigned exclusively to Topological Community [${commId}].
+Analyze this isolated architectural sub-graph. Extract insights directly related to the user's query. Do not hallucinate outside your given community.
+
+### ISOLATED SUB-GRAPH:
+${contextText || "No source code chunks available for this structural region."}`;
+
+      synthesisLog.push(`-> Edge Agent ${idx + 1} computing over Community ${commId}...`);
+      const insight = await this.localGenerator!.generateCompletion(query, systemPrompt, model);
+      return `[Agent ${idx + 1} (Community ${commId}) Insight]:\n${insight}`;
+    });
+
+    const edgeInsights = await Promise.all(agentPromises);
+    synthesisLog.push("All Edge Agents returned. Initiating Synthesis...");
+
+    // 3. The Synthesizer Agent
+    const synthesizerPrompt = `You are the Synthesizer Agent. Your job is to compile the reports from parallel Edge Agents who each analyzed distinct topological sections of the codebase.
+Resolve any contradictions, merge their insights, and provide a single cohesive answer to the user's query.
+
+### EDGE AGENT REPORTS:
+${edgeInsights.join("\n\n")}`;
+
+    const finalAnswer = await this.localGenerator.generateCompletion(query, synthesizerPrompt, model);
+    synthesisLog.push("Synthesis complete.");
+
+    return {
+      answer: finalAnswer,
+      synthesisLog,
       modelUsed: model || this.config.local.activeGenerator,
     };
   }
