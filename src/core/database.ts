@@ -10,6 +10,7 @@ import {
   MemoryRelation,
 } from "./types";
 import { bufferToFloat32, float32ToBuffer } from "../vector/math";
+import { tokenizeQuery } from "./text";
 
 export class MemoryDatabase {
   private db: DatabaseSync;
@@ -564,6 +565,96 @@ export class MemoryDatabase {
         VALUES (?, ?, ?, ?, ?)
       `)
         .run(chunk.id, filepath, chunk.content, chunk.symbolName || "", chunk.heading || "");
+    }
+  }
+
+  /** True when the FTS5 virtual tables were created in this SQLite build. */
+  get ftsAvailable(): boolean {
+    return this.hasFTS5;
+  }
+
+  /**
+   * Turns arbitrary user text into a safe FTS5 MATCH expression.
+   *
+   * The query string is never interpolated: every term is stripped to word
+   * characters and wrapped in double quotes, so FTS5 operators a user might type
+   * (`AND`, `OR`, `NOT`, `NEAR`, `*`, `^`, `:`, parentheses, quotes) are treated
+   * as literal text rather than syntax. Returns null when nothing searchable
+   * survives, so callers skip MATCH entirely instead of issuing an empty query.
+   */
+  private buildFtsMatchExpression(query: string): string | null {
+    // Shares `tokenizeQuery` with the lexical scorer deliberately. When the two
+    // disagreed, this side matched function words the scorer discarded, so a
+    // content-free query ("of in on at by") still produced FTS hits and satisfied
+    // the disambiguation gate's lexical anchor. Stop words also carry no BM25
+    // weight, so dropping them costs no ranking quality.
+    const terms = Array.from(new Set(tokenizeQuery(query))).slice(0, 32);
+
+    if (terms.length === 0) return null;
+    return terms.map((term) => `"${term.replace(/"/g, '""')}"`).join(" OR ");
+  }
+
+  /**
+   * Ranks chunk ids by FTS5 BM25 relevance, best first.
+   *
+   * Column weights preserve the emphasis the in-memory scorer used before this
+   * arm existed: a symbol hit outweighs a heading hit, which outweighs body
+   * text. Returns null when FTS5 is unavailable so the caller can fall back to
+   * scanning rather than silently returning no lexical evidence.
+   *
+   * Namespace filtering is deliberately NOT done here: strict and federated
+   * scoping live in one place in the retriever, and duplicating that logic in
+   * SQL is how isolation regressions get introduced. Callers over-fetch and
+   * filter.
+   */
+  searchChunksLexical(
+    query: string,
+    limit: number
+  ): Array<{ id: string; score: number }> | null {
+    if (!this.hasFTS5) return null;
+    const match = this.buildFtsMatchExpression(query);
+    if (!match) return [];
+
+    try {
+      const rows = this.db
+        .prepare(`
+          SELECT chunk_id as id, -bm25(chunks_fts, 0.0, 0.0, 1.0, 3.0, 2.0) as score
+          FROM chunks_fts
+          WHERE chunks_fts MATCH ?
+          ORDER BY score DESC
+          LIMIT ?
+        `)
+        .all(match, Math.max(1, Math.floor(limit))) as Array<{ id: string; score: number }>;
+      return rows.filter((row) => typeof row.id === "string" && Number.isFinite(row.score));
+    } catch {
+      // A malformed match expression or a missing table must degrade to the
+      // scanning fallback, never take down retrieval.
+      return null;
+    }
+  }
+
+  /** Ranks memory ids by FTS5 BM25 relevance, best first. See searchChunksLexical. */
+  searchMemoriesLexical(
+    query: string,
+    limit: number
+  ): Array<{ id: string; score: number }> | null {
+    if (!this.hasFTS5) return null;
+    const match = this.buildFtsMatchExpression(query);
+    if (!match) return [];
+
+    try {
+      const rows = this.db
+        .prepare(`
+          SELECT memory_id as id, -bm25(memories_fts, 0.0, 2.0, 1.0) as score
+          FROM memories_fts
+          WHERE memories_fts MATCH ?
+          ORDER BY score DESC
+          LIMIT ?
+        `)
+        .all(match, Math.max(1, Math.floor(limit))) as Array<{ id: string; score: number }>;
+      return rows.filter((row) => typeof row.id === "string" && Number.isFinite(row.score));
+    } catch {
+      return null;
     }
   }
 
