@@ -180,6 +180,12 @@ async function main() {
     // words, which satisfied the gate's lexical anchor and let the semantic arm
     // vouch for gibberish on its own.
     assert.deepEqual(tokenizeQuery("of in on at by"), []);
+    // Coverage is a ratio, so one surviving term scores 1.0 and admits the query on
+    // the lexical arm alone. "without" was missing from the stop-word class, was the
+    // only token to survive this query, and let seven content-free queries through
+    // the gate on a development split. A missing function word is a gate defect.
+    assert.deepEqual(tokenizeQuery("to from with without the and or but"), []);
+    assert.deepEqual(tokenizeQuery("although within upon whereas"), []);
     assert.deepEqual(tokenizeQuery("the the the"), []);
     assert.deepEqual(tokenizeQuery("how to change a car tire"), ["change", "car", "tire"]);
     assert.deepEqual(tokenizeQuery("FTS5, lexical-search"), ["fts5", "lexical", "search"]);

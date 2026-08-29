@@ -24,7 +24,27 @@ export const STOP_WORDS: ReadonlySet<string> = new Set([
   "them", "themselves", "then", "there", "these", "they", "this", "those", "through",
   "to", "too", "under", "until", "up", "very", "was", "we", "were", "what", "when",
   "where", "which", "while", "who", "whom", "why", "with", "would", "you", "your",
+  // Prepositions, conjunctions and connectives absent from the original list. Their
+  // absence was not cosmetic: "without" was the only token surviving tokenization of
+  // "to from with without the and or but", so coverage scored 1/1 = 1.0 and the
+  // lexical arm admitted a content-free query on its own. Completing the class is
+  // the fix for the class; see the arity note below for what it does not fix.
+  "across", "along", "although", "among", "amongst", "around", "behind", "beside",
+  "besides", "beyond", "cannot", "despite", "else", "except", "hence", "however",
+  "moreover", "nevertheless", "onto", "per", "rather", "therefore", "thus",
+  "toward", "towards", "unless", "unto", "upon", "via", "whereas", "whether",
+  "within", "without", "whose",
 ]);
+
+/**
+ * Known limitation: coverage is a ratio, so a query reducing to a single term
+ * scores either 0 or 1 and carries almost no information at 1. The stop-word class
+ * above is what keeps function words from being that single term, which makes this
+ * list load-bearing rather than cosmetic - a missing entry is a gate defect, not a
+ * ranking nuisance. Document frequency does not substitute for it: measured on this
+ * corpus "without" appears in 4% of chunks while "retriever" appears in 32% and
+ * "file" in 87%, so a frequency cutoff would discard useful terms and keep this one.
+ */
 
 /**
  * Splits query text into discriminative lowercase terms. Punctuation is
