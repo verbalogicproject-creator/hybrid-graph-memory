@@ -14,6 +14,10 @@ export interface MemoryConfig {
   };
   local: {
     embedderUrl: string;
+    /** Alias the embedder serves under. Must track the served model: a change of
+     *  model without a change of name defeats the stored-vector guard in
+     *  HybridRetriever, which compares this string against `chunks.embedding_model`. */
+    embedderModel: string;
     rerankerUrl: string;
     generatorUrl: string;
     generatorModels: string[];
@@ -187,6 +191,8 @@ export function loadMemoryConfig(startDir = process.cwd()): MemoryConfig {
     local: {
       embedderUrl:
         loopbackUrl(local.embedderUrl, "local.embedderUrl") ?? "http://127.0.0.1:8145/v1/embeddings",
+      embedderModel:
+        nonblankString(local.embedderModel, "local.embedderModel") ?? "embeddinggemma-300m-q8",
       rerankerUrl:
         loopbackUrl(local.rerankerUrl, "local.rerankerUrl") ?? "http://127.0.0.1:8144/v1/rerank",
       generatorUrl:

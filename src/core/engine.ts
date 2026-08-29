@@ -80,7 +80,7 @@ export class MemoryEngine {
       if (mode === "local") {
         const local = new LocalLlamaEmbeddingProvider(
           this.config.local.embedderUrl,
-          "embeddinggemma-300m-q4",
+          this.config.local.embedderModel,
           this.config.local.dimensions
         );
         const ok = await local.checkHealth();
@@ -108,7 +108,7 @@ export class MemoryEngine {
         // mode === "auto"
         const local = new LocalLlamaEmbeddingProvider(
           this.config.local.embedderUrl,
-          "embeddinggemma-300m-q4",
+          this.config.local.embedderModel,
           this.config.local.dimensions
         );
         const ok = await local.checkHealth();

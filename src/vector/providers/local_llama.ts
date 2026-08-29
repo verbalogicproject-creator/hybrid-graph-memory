@@ -4,6 +4,22 @@ import {
   QueryEmbeddingInput,
 } from "../../core/types";
 
+/**
+ * EmbeddingGemma's trained prompt formats, published on Google's model card. The
+ * server does not add them -- `embed-server.sh` states this outright -- so the
+ * caller must, and this provider previously did not.
+ *
+ * Measured on this corpus (research/embedder-quantization/): applying them widens
+ * the in-domain / out-of-domain margin from 0.021 to 0.067 on the old embedder and
+ * to 0.124 together with the complete model, against a run-to-run noise floor of
+ * roughly 0.005. The effect is not additive with the model fix; the two interact.
+ *
+ * `title: none` is what was measured. Substituting a real title is untested here,
+ * so document metadata is folded into the text slot rather than the title slot.
+ */
+const QUERY_PROMPT_PREFIX = "task: search result | query: ";
+const DOCUMENT_PROMPT_PREFIX = "title: none | text: ";
+
 export class LocalLlamaEmbeddingProvider implements EmbeddingProvider {
   readonly modelName: string;
   readonly dimensions: number;
@@ -14,7 +30,7 @@ export class LocalLlamaEmbeddingProvider implements EmbeddingProvider {
 
   constructor(
     embedderUrl = "http://127.0.0.1:8145/v1/embeddings",
-    modelName = "embeddinggemma-300m-q4",
+    modelName = "embeddinggemma-300m-q8",
     dimensions = 768
   ) {
     this.embedderUrl = embedderUrl;
@@ -53,19 +69,23 @@ export class LocalLlamaEmbeddingProvider implements EmbeddingProvider {
       textToEmbed = `${headerParts.join(" | ")}\n\n${input.text}`;
     }
 
-    return this.callLocalEmbedding(textToEmbed);
+    return this.callLocalEmbedding(textToEmbed, DOCUMENT_PROMPT_PREFIX);
   }
 
   async embedQuery(input: QueryEmbeddingInput): Promise<Float32Array> {
-    return this.callLocalEmbedding(input.query);
+    return this.callLocalEmbedding(input.query, QUERY_PROMPT_PREFIX);
   }
 
-  private async callLocalEmbedding(text: string): Promise<Float32Array> {
+  private async callLocalEmbedding(text: string, prefix = ""): Promise<Float32Array> {
     try {
       // Guard against empty string (causes HTTP 500 on llama.cpp tokenization)
       const cleanText = text && text.trim().length > 0 ? text.trim() : "empty";
       // Truncate overly long text payloads to fit safely within llama.cpp 512 token physical batch size (~1200 chars)
-      const safeText = cleanText.length > 1200 ? cleanText.slice(0, 1200) : cleanText;
+      // Truncate first, then prefix: applying the prefix before the cut would let
+      // it displace ~20 characters of real content, and the measured effect above
+      // was obtained with the content held constant across prefixed and bare runs.
+      const safeText =
+        prefix + (cleanText.length > 1200 ? cleanText.slice(0, 1200) : cleanText);
       const res = await fetch(this.embedderUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
