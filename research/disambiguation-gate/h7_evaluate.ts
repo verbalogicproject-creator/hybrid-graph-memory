@@ -44,7 +44,11 @@ async function main() {
     return;
   }
 
-  const pool = JSON.parse(fs.readFileSync(path.join(__dirname, "h7_pool.json"), "utf8"));
+  // Attempt 1's pool stays the default so its run remains reproducible; later
+  // attempts pass their own bundle explicitly.
+  const poolArgument = process.argv.indexOf("--pool");
+  const poolFile = poolArgument >= 0 ? process.argv[poolArgument + 1] : "h7_pool.json";
+  const pool = JSON.parse(fs.readFileSync(path.join(__dirname, poolFile), "utf8"));
   const queries: PoolQuery[] = pool.queries.filter((q: PoolQuery) => q.split === splitArgument);
   const config = loadMemoryConfig(path.resolve(__dirname, "../.."));
 
