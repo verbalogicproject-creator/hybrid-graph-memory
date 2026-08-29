@@ -5,13 +5,16 @@
     "generatorModel": "gemini-1.5-flash"
   },
   "excludedPathPrefixes": [
-    "research/vector-topology-primitives/legacy",
     "Autonomous-Engineering-Department.md",
     "Multi-Agent-Case-Study.md",
     "Topological-Proof-Transcript.md",
     "generalization-active.md",
     "implementation-roadmap.md",
     "killer-features.md",
+    "research/disambiguation-gate/calibration_queries.json",
+    "research/disambiguation-gate/h7_pool.json",
+    "research/disambiguation-gate/h7_test_result.json",
+    "research/vector-topology-primitives/legacy",
     "ultra-50g.md",
     "upgrade-directions.md"
   ]

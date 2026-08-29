@@ -9,3 +9,7 @@ __pycache__/
 *.db
 *.db-shm
 *.db-wal
+
+# session artifacts, not source
+Terminal transcript.txt
+.vouch/

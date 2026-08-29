@@ -32,6 +32,8 @@ export interface MemoryConfig {
   rrfConstant: number;
   halfLifeDays: number;
   disambiguationThreshold: number;
+  /** Query-term coverage at which the lexical arm alone satisfies the gate. */
+  lexicalEvidenceThreshold: number;
   minSimilarityThreshold: number;
   maxFileBytes: number;
   maxFiles: number;
@@ -247,7 +249,19 @@ export function loadMemoryConfig(startDir = process.cwd()): MemoryConfig {
     defaultResultLimit: finiteNumber(parsed.defaultResultLimit, "defaultResultLimit", 1, 1_000) ?? 6,
     rrfConstant: finiteNumber(parsed.rrfConstant, "rrfConstant", 1, 10_000) ?? 60,
     halfLifeDays: finiteNumber(parsed.halfLifeDays, "halfLifeDays", 0.01, 36_500) ?? 14,
-    disambiguationThreshold: finiteNumber(parsed.disambiguationThreshold, "disambiguationThreshold", -1, 1) ?? 0.6,
+    // Gate defaults calibrated 2026-08-29 against this repository's own corpus with
+    // embeddinggemma-300m-q4 (16 in-domain, 12 out-of-domain, 7 content-free queries).
+    // Observed semantic: in-domain 0.458-0.627 vs out-of-domain 0.375-0.434 - adjacent,
+    // separated by only 0.024, so cosine is not load-bearing on its own. Observed
+    // lexical coverage: in-domain 0.667-1.000 (16/16 had signal) vs out-of-domain
+    // 0.250-0.667 (7/12 had none) vs content-free 0/7 with any signal at all.
+    // Coverage is quantized by query length, so 0.7 reads as "every term of a two- or
+    // three-term query, or three quarters of a four-term one" - it sits in the gap
+    // rather than on an observed value. The two in-domain queries at 0.667 still pass,
+    // via the semantic arm. This is a calibrated default, not a held-out evaluation
+    // result - see research/.../PROTOCOL.md before claiming more.
+    disambiguationThreshold: finiteNumber(parsed.disambiguationThreshold, "disambiguationThreshold", -1, 1) ?? 0.5,
+    lexicalEvidenceThreshold: finiteNumber(parsed.lexicalEvidenceThreshold, "lexicalEvidenceThreshold", -1, 1) ?? 0.7,
     minSimilarityThreshold: finiteNumber(parsed.minSimilarityThreshold, "minSimilarityThreshold", -1, 1) ?? 0.25,
     maxFileBytes: finiteNumber(parsed.maxFileBytes, "maxFileBytes", 1, 1024 ** 3) ?? 2 * 1024 * 1024,
     maxFiles: finiteNumber(parsed.maxFiles, "maxFiles", 1, 1_000_000) ?? 50_000,

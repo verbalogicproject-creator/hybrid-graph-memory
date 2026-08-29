@@ -13,6 +13,7 @@ import { cosineSimilarity } from "../vector/math";
 import { inferQueryIntent } from "./intent";
 import { LexicalScorer } from "./lexical";
 import { reciprocalRankFusion } from "./rank_fusion";
+import { enforceDisambiguationGate } from "./disambiguation";
 
 export class HybridRetriever {
   private lexicalScorer = new LexicalScorer();
@@ -21,6 +22,17 @@ export class HybridRetriever {
     skippedByModel: Record<string, number>;
     matchingVectorsCount: number;
     rerankerFallback?: string;
+    /** Evidence the disambiguation gate weighed, recorded for observability. */
+    gate?: {
+      exactEvidence: boolean;
+      topSemanticScore?: number;
+      topLexicalScore?: number;
+      semanticThreshold: number;
+      lexicalThreshold: number;
+      passed: boolean;
+      /** Which lexical implementation produced the ranking for this search. */
+      lexicalArm: "fts5_bm25" | "scan_fallback";
+    };
   };
 
   constructor(
@@ -74,14 +86,27 @@ export class HybridRetriever {
       (retrievalMode === 'strict' ? this.config.projectName : undefined);
     const targetModule = options.module;
 
-    const matchesNamespace = (item: {
+    type ScopedItem = {
       workspace?: string;
       project?: string;
       module?: string;
       memoryType?: string;
       triggerTags?: string[];
       admissionStatus?: string;
-    }) => {
+    };
+
+    /**
+     * The namespace boundary on its own: workspace/project/module identity, plus
+     * federation's positive-admission requirement. This is the hard isolation
+     * boundary and nothing crosses it.
+     *
+     * It is separated from `matchesNamespace` so the disambiguation gate can ask
+     * "does this query touch anything inside my scope at all?" without admission
+     * status changing the answer. A term that occurs only in a quarantined record
+     * still proves the query is not gibberish, even though that record can never
+     * be returned.
+     */
+    const matchesScope = (item: ScopedItem) => {
       if (retrievalMode === 'federated') {
         // Federation is positive admission only: no identity, no result.
         if (!item.workspace || !federation!.allowedWorkspaces.includes(item.workspace)) {
@@ -105,6 +130,13 @@ export class HybridRetriever {
         return false;
       }
       if (targetModule && item.module !== targetModule) {
+        return false;
+      }
+      return true;
+    };
+
+    const matchesNamespace = (item: ScopedItem) => {
+      if (!matchesScope(item)) {
         return false;
       }
       if (!allowedAdmissionStatuses.has((item.admissionStatus || "admitted") as any)) {
@@ -288,7 +320,11 @@ export class HybridRetriever {
       ...semanticMemoryMatches,
     ].sort((a, b) => b.score - a.score);
 
-    // 4. Lexical scoring (scoped to namespace)
+    // 4. Lexical ranking (scoped to namespace)
+    //
+    // BM25 over the maintained FTS5 index supplies the ranking. When FTS5 is not
+    // available in the SQLite build, we fall back to scanning every chunk with
+    // the in-memory scorer rather than returning no lexical evidence at all.
     const lexicalMatches: Array<{
       id: string;
       score: number;
@@ -298,48 +334,140 @@ export class HybridRetriever {
       accessCount?: number;
     }> = [];
 
-    for (const chunk of chunks) {
-      if (!matchesNamespace(chunk)) continue;
-      const match = this.lexicalScorer.scoreText(
-        query,
-        chunk.id,
-        chunk.content,
-        chunk.symbolName,
-        chunk.heading
-      );
-      if (match) {
-        lexicalMatches.push({
-          id: chunk.id,
-          score: match.score,
-          sourceType: chunk.sourceType,
-          timestamp: chunk.updatedAt || chunk.createdAt,
-          lastAccessedAt: chunk.lastAccessedAt,
-          accessCount: chunk.accessCount,
-        });
+    // Set when any in-scope record shares a term with the query, regardless of
+    // whether that record is admissible. See matchesScope.
+    let lexicalAnchor = false;
+
+    const chunkById = new Map(chunks.map((chunk) => [chunk.id, chunk]));
+    const memoryById = new Map(memories.map((memory) => [memory.id, memory]));
+
+    // Over-fetch, then filter through matchesNamespace. Strict and federated
+    // scoping stay in one place; duplicating them in SQL is how isolation
+    // regressions get introduced.
+    const lexicalFetchLimit = Math.min(2_000, Math.max(candidateLimit * 5, 200));
+    // Feature-detected rather than assumed: the retriever accepts any database
+    // satisfying its read contract, and a caller supplying a narrower one must
+    // degrade to the scanning fallback instead of crashing.
+    const ftsCapable =
+      typeof this.db.searchChunksLexical === "function" &&
+      typeof this.db.searchMemoriesLexical === "function";
+    const ftsChunkRows = ftsCapable ? this.db.searchChunksLexical(query, lexicalFetchLimit) : null;
+    const ftsMemoryRows = ftsCapable ? this.db.searchMemoriesLexical(query, lexicalFetchLimit) : null;
+    const usedFts = ftsChunkRows !== null && ftsMemoryRows !== null;
+
+    if (usedFts) {
+      // BM25 scores from two virtual tables carry different corpus statistics,
+      // so normalize each list against its own best before interleaving them.
+      const normalize = (rows: Array<{ id: string; score: number }>) => {
+        const best = rows.reduce((max, row) => Math.max(max, row.score), 0);
+        return rows.map((row) => ({
+          id: row.id,
+          score: best > 0 ? row.score / best : 0,
+        }));
+      };
+
+      const ranked = [
+        ...normalize(ftsChunkRows!).map((row) => ({ ...row, kind: "chunk" as const })),
+        ...normalize(ftsMemoryRows!).map((row) => ({ ...row, kind: "memory" as const })),
+      ].sort((a, b) => b.score - a.score);
+
+      for (const row of ranked) {
+        if (row.kind === "chunk") {
+          const chunk = chunkById.get(row.id);
+          if (chunk && matchesScope(chunk)) lexicalAnchor = true;
+          if (!chunk || !matchesNamespace(chunk)) continue;
+          lexicalMatches.push({
+            id: chunk.id,
+            score: row.score,
+            sourceType: chunk.sourceType,
+            timestamp: chunk.updatedAt || chunk.createdAt,
+            lastAccessedAt: chunk.lastAccessedAt,
+            accessCount: chunk.accessCount,
+          });
+        } else {
+          const memory = memoryById.get(row.id);
+          if (memory && matchesScope(memory)) lexicalAnchor = true;
+          if (!memory || !matchesNamespace(memory)) continue;
+          lexicalMatches.push({
+            id: memory.id,
+            score: row.score,
+            sourceType: memory.memoryType,
+            timestamp: memory.updatedAt || memory.createdAt,
+            lastAccessedAt: memory.lastAccessedAt,
+            accessCount: memory.accessCount,
+          });
+        }
       }
+    } else {
+      for (const chunk of chunks) {
+        if (!matchesScope(chunk)) continue;
+        const scopedMatch = this.lexicalScorer.scoreText(
+          query,
+          chunk.id,
+          chunk.content,
+          chunk.symbolName,
+          chunk.heading
+        );
+        if (scopedMatch) lexicalAnchor = true;
+        if (!matchesNamespace(chunk)) continue;
+        if (scopedMatch) {
+          lexicalMatches.push({
+            id: chunk.id,
+            score: scopedMatch.score,
+            sourceType: chunk.sourceType,
+            timestamp: chunk.updatedAt || chunk.createdAt,
+            lastAccessedAt: chunk.lastAccessedAt,
+            accessCount: chunk.accessCount,
+          });
+        }
+      }
+
+      for (const memory of memories) {
+        if (!matchesScope(memory)) continue;
+        const scopedMatch = this.lexicalScorer.scoreText(
+          query,
+          memory.id,
+          memory.content,
+          memory.title
+        );
+        if (scopedMatch) lexicalAnchor = true;
+        if (!matchesNamespace(memory)) continue;
+        if (scopedMatch) {
+          lexicalMatches.push({
+            id: memory.id,
+            score: scopedMatch.score,
+            sourceType: memory.memoryType,
+            timestamp: memory.updatedAt || memory.createdAt,
+            lastAccessedAt: memory.lastAccessedAt,
+            accessCount: memory.accessCount,
+          });
+        }
+      }
+
+      lexicalMatches.sort((a, b) => b.score - a.score);
     }
 
-    for (const memory of memories) {
-      if (!matchesNamespace(memory)) continue;
-      const match = this.lexicalScorer.scoreText(
-        query,
-        memory.id,
-        memory.content,
-        memory.title
-      );
-      if (match) {
-        lexicalMatches.push({
-          id: memory.id,
-          score: match.score,
-          sourceType: memory.memoryType,
-          timestamp: memory.updatedAt || memory.createdAt,
-          lastAccessedAt: memory.lastAccessedAt,
-          accessCount: memory.accessCount,
-        });
+    // Absolute query-coverage evidence for the disambiguation gate.
+    //
+    // BM25 is corpus-relative by construction and the normalization above makes
+    // the top hit 1.0 for *any* query that matches a single token, so the
+    // ranking score answers "which is best?" but not "is there evidence at all?".
+    // The gate needs the latter, so it gets an independent absolute measure —
+    // which also keeps the gate's calibration identical whether FTS5 or the
+    // scanning fallback produced the ranking.
+    let topLexicalCoverage: number | undefined;
+    for (const entry of lexicalMatches.slice(0, 25)) {
+      const chunk = chunkById.get(entry.id);
+      const memory = chunk ? undefined : memoryById.get(entry.id);
+      const scored = chunk
+        ? this.lexicalScorer.scoreText(query, chunk.id, chunk.content, chunk.symbolName, chunk.heading)
+        : memory
+          ? this.lexicalScorer.scoreText(query, memory.id, memory.content, memory.title)
+          : null;
+      if (scored && (topLexicalCoverage === undefined || scored.coverage > topLexicalCoverage)) {
+        topLexicalCoverage = scored.coverage;
       }
     }
-
-    lexicalMatches.sort((a, b) => b.score - a.score);
 
     // 5. Graph Relations Traversal (scoped to namespace)
     const graphMatches: Array<{
@@ -549,13 +677,27 @@ export class HybridRetriever {
       )
     );
     const topSemanticScore = allSemanticMatches[0]?.score;
+    const topLexicalScore = topLexicalCoverage;
 
-    const { enforceDisambiguationGate } = require("./disambiguation");
     const disambiguationFlags = enforceDisambiguationGate(finalResults, {
       exactEvidence,
       topSemanticScore,
+      topLexicalScore,
+      lexicalAnchor,
       threshold: this.config.disambiguationThreshold,
+      lexicalThreshold: this.config.lexicalEvidenceThreshold,
     });
+    if (this.lastSearchStats) {
+      this.lastSearchStats.gate = {
+        exactEvidence,
+        topSemanticScore,
+        topLexicalScore,
+        semanticThreshold: this.config.disambiguationThreshold,
+        lexicalThreshold: this.config.lexicalEvidenceThreshold,
+        passed: disambiguationFlags.length === 0,
+        lexicalArm: usedFts ? "fts5_bm25" : "scan_fallback",
+      };
+    }
     if (disambiguationFlags.length > 0) {
       return disambiguationFlags;
     }

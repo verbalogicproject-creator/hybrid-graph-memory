@@ -1,0 +1,76 @@
+{
+  "poolId": "h7-mechanical-20260829",
+  "split": "test",
+  "gitCommit": "400fc48df665cee60ef4ae31122d3e0ba43d5f83",
+  "baselineCommit": "984fa09bb5c3bc30d7b5cda05a5f6d9b437c18e8",
+  "thresholds": {
+    "disambiguationThreshold": 0.5,
+    "lexicalEvidenceThreshold": 0.7
+  },
+  "counts": {
+    "total": 127,
+    "answerable": 31,
+    "negative": 96
+  },
+  "falseAccept": {
+    "rate": 0,
+    "lower": 0,
+    "upper": 0.038475587875039054,
+    "bound": {
+      "rate": 0.05,
+      "upper": 0.1
+    },
+    "pass": true
+  },
+  "falseReject": {
+    "rate": 0,
+    "lower": 0,
+    "upper": 0.11025539550647792,
+    "bound": {
+      "rate": 0.1,
+      "upper": 0.2
+    },
+    "pass": true
+  },
+  "bySource": [
+    {
+      "source": "markdown_heading",
+      "n": 15,
+      "errors": 0,
+      "errorRate": 0
+    },
+    {
+      "source": "commit_subject",
+      "n": 10,
+      "errors": 0,
+      "errorRate": 0
+    },
+    {
+      "source": "doc_comment",
+      "n": 6,
+      "errors": 0,
+      "errorRate": 0
+    },
+    {
+      "source": "off_topic",
+      "n": 50,
+      "errors": 0,
+      "errorRate": 0
+    },
+    {
+      "source": "content_free",
+      "n": 46,
+      "errors": 0,
+      "errorRate": 0
+    }
+  ],
+  "decision": "H7_confirmed",
+  "errors": [],
+  "runOrder": "single test-split execution; configuration frozen at commit e245aa9 before this run",
+  "declaredIn": "research/vector-topology-primitives/canonical/PROTOCOL.md section H7",
+  "corpus": {
+    "indexedFiles": 60,
+    "indexedAt": "2026-08-28T17:17:45.678Z",
+    "note": "The index predates every file in research/disambiguation-gate/, so the query pool was never part of the corpus it was evaluated against. It reflects the repository at the baseline commit, which is also where the answerable queries were extracted from, so no query was drawn from text the tuner wrote during this session."
+  }
+}

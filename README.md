@@ -130,7 +130,8 @@ loopback host.
   "rrfConstant": 60,
   "halfLifeDays": 14,
   "minSimilarityThreshold": 0.25,
-  "disambiguationThreshold": 0.6,
+  "disambiguationThreshold": 0.5,
+  "lexicalEvidenceThreshold": 0.7,
   "maxFileBytes": 2097152,
   "maxFiles": 50000,
   "maxTotalBytes": 536870912,
@@ -157,15 +158,69 @@ reciprocal-rank fusion:
 RRF(d) = Σ_m w_m / (k + rank_m(d) + 1).
 ```
 
+The lexical ranking is SQLite FTS5 BM25 over the maintained virtual tables, with
+column weights preserving a symbol-over-heading-over-body emphasis. Query text is
+never interpolated into the MATCH expression: terms are stripped to word
+characters and quoted individually, so FTS5 operators typed by a caller are
+treated as literal text. The MATCH builder and the in-memory scorer share one
+tokenizer (`src/core/text.ts`) so they cannot disagree about which terms are
+meaningful; stop words are dropped on both sides. When FTS5 is unavailable in the
+SQLite build — or the caller supplies a database without the lexical query
+methods — retrieval degrades to scanning with an in-memory overlap scorer rather
+than losing the arm.
+
+The scorer reports two numbers. Its field-weighted `score` ranks results and
+deliberately is not a fraction of the query. Its `coverage` is the fraction of the
+query's discriminative terms present at all, and that is what the gate reads.
+Symbols match as substrings, because an identifier is a deliberate compound and
+`retriever` should reach `HybridRetriever`; body text and headings match at word
+starts, so a short term cannot harvest matches from inside unrelated words.
+Compound identifiers are split at camelCase humps first, so `maxFileBytes` still
+matches `file`.
+
 Time decay is a ranking policy, not a truth score:
 
 ```text
 decay(ageDays) = max(0.10, 2^(-ageDays / halfLifeDays)).
 ```
 
-The disambiguation gate accepts results when there is exact trigger/symbol/heading
-evidence or when the best raw semantic score meets the configured threshold.
-It does not compare an RRF score to a cosine threshold.
+The disambiguation gate accepts results when any independent arm vouches for them:
+exact trigger/symbol/heading evidence, a best raw semantic score meeting
+`disambiguationThreshold`, or a best lexical coverage meeting
+`lexicalEvidenceThreshold`. The arms are a disjunction — a query worded like the
+corpus is well evidenced even when the embedder scores it modestly, and a
+paraphrase that barely overlaps it is well evidenced by cosine. When no arm
+clears its bar the gate fails closed and returns a disambiguation request naming
+both scores. It does not compare an RRF score to a cosine threshold.
+
+The semantic arm additionally requires a lexical anchor before it may vouch alone:
+at least one query term must occur inside the caller's namespace. Content-free
+input embeds near the corpus centroid and scores as highly as a real question
+(measured here: 0.43-0.55 junk against a 0.46-0.63 genuine band), so cosine
+separates off-topic text but not gibberish. The anchor is evaluated against
+namespace scope rather than admissibility - a term appearing only in a quarantined
+record still proves the query is meaningful, though that record is never returned.
+
+The shipped thresholds are calibrated defaults, not an evaluation result. On this
+repository's own corpus with `embeddinggemma-300m-q4` (16 in-domain, 12
+out-of-domain and 7 content-free queries, 2026-08-29), semantic scores were merely
+adjacent between the first two sets — in-domain 0.458–0.627 against out-of-domain
+0.375–0.434, a margin of 0.024 — so cosine is not load-bearing on its own. Lexical
+coverage separated far more cleanly: in-domain 0.667–1.000 with every query
+producing signal, out-of-domain 0.250–0.667 with seven of twelve producing none,
+and no content-free query producing any signal at all. Coverage is quantized by
+query length, so the 0.7 bar reads as "every term of a two- or three-term query, or
+three quarters of a four-term one" and sits in the gap rather than on an observed
+value. That sample separated completely at 0.5/0.7.
+
+The gate's resulting behaviour — not its retrieval quality — was then evaluated
+against a preregistered rule, H7, on a held-out split of 127 queries the tuner did
+not author: 0 false accepts of 96 negatives and 0 false rejects of 31 answerable
+queries, confirming H7 on this corpus with this embedder. Retrieval *quality*
+remains unevaluated, and H7 is not evidence for it. See
+`research/disambiguation-gate/` for the run and
+`research/vector-topology-primitives/canonical/{CLAIMS.md,PROTOCOL.md}` for claim
+C11 and the decision rule.
 
 Optional reranking validates returned indices, rejects duplicates and non-finite
 scores, preserves the unreranked tail, and deterministically falls back to the

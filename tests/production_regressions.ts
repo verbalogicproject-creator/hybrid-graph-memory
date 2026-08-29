@@ -7,6 +7,8 @@ import { loadMemoryConfig } from "../src/core/config";
 import { MemoryDatabase } from "../src/core/database";
 import { ProjectScanner } from "../src/ast/scanner";
 import { enforceDisambiguationGate } from "../src/retrieval/disambiguation";
+import { LexicalScorer } from "../src/retrieval/lexical";
+import { tokenizeQuery } from "../src/core/text";
 import { HybridRetriever } from "../src/retrieval/hybrid_retriever";
 import { MemoryMcpServer } from "../src/mcp/server";
 import { serveWebDashboard } from "../src/server/web_dashboard";
@@ -79,6 +81,132 @@ async function main() {
     assert.equal(rejected[0]?.id, "DISAMBIGUATION_REQUIRED");
     assert.deepEqual(enforceDisambiguationGate([result], { exactEvidence: true, threshold: 1 }), []);
     assert.throws(() => enforceDisambiguationGate([result], { exactEvidence: false, threshold: 2 }), RangeError);
+
+    // Gate evidence arms are a disjunction: any one arm clearing its bar admits the
+    // result, and the gate still fails closed when none of them do.
+    const gate = (evidence: any) => enforceDisambiguationGate([result], evidence);
+    const gated = (evidence: any) => gate(evidence)[0]?.id === "DISAMBIGUATION_REQUIRED";
+
+    // Lexical evidence alone admits a result the semantic arm would have refused.
+    assert.deepEqual(
+      gate({ exactEvidence: false, topSemanticScore: 0.31, topLexicalScore: 0.9, threshold: 0.5, lexicalThreshold: 0.5 }),
+      []
+    );
+    // Semantic evidence admits a paraphrase that merely shares a term with the
+    // corpus, well below the lexical bar.
+    assert.deepEqual(
+      gate({ exactEvidence: false, topSemanticScore: 0.72, topLexicalScore: 0.1, threshold: 0.5, lexicalThreshold: 0.5 }),
+      []
+    );
+    // But a content-free query embeds near the corpus centroid and scores like a
+    // real one, so semantic similarity with no lexical anchor at all is refused.
+    assert.equal(
+      gated({ exactEvidence: false, topSemanticScore: 0.9, topLexicalScore: 0, threshold: 0.5, lexicalThreshold: 0.5 }),
+      true
+    );
+    assert.equal(
+      gated({ exactEvidence: false, topSemanticScore: 0.9, threshold: 0.5, lexicalThreshold: 0.5 }),
+      true
+    );
+    // The anchor never overrides an exact hit.
+    assert.deepEqual(
+      gate({ exactEvidence: true, topSemanticScore: 0.9, topLexicalScore: 0, threshold: 0.5, lexicalThreshold: 0.5 }),
+      []
+    );
+    // A refusal caused by the missing anchor says so.
+    assert.match(
+      gate({ exactEvidence: false, topSemanticScore: 0.9, topLexicalScore: 0, threshold: 0.5, lexicalThreshold: 0.5 })[0].content,
+      /No term in the query occurs anywhere in the indexed corpus/
+    );
+    // Callers that never engage the lexical arm keep unanchored semantic evidence.
+    assert.deepEqual(
+      gate({ exactEvidence: false, topSemanticScore: 0.9, threshold: 0.5 }),
+      []
+    );
+    // An explicit anchor overrides the score-derived default in both directions:
+    // the anchor asks whether the query touches the namespace at all, which is a
+    // different question from whether an *admissible* record scored above zero.
+    assert.deepEqual(
+      gate({ exactEvidence: false, topSemanticScore: 0.9, topLexicalScore: 0, lexicalAnchor: true, threshold: 0.5, lexicalThreshold: 0.5 }),
+      []
+    );
+    assert.equal(
+      gated({ exactEvidence: false, topSemanticScore: 0.9, topLexicalScore: 0.9, lexicalAnchor: false, threshold: 0.5, lexicalThreshold: 0.5 }),
+      false, // still admitted, because the lexical arm itself cleared its bar
+    );
+    // Both arms below their bar still fails closed.
+    assert.equal(
+      gated({ exactEvidence: false, topSemanticScore: 0.31, topLexicalScore: 0.2, threshold: 0.5, lexicalThreshold: 0.5 }),
+      true
+    );
+    // Thresholds are inclusive, so a score exactly at the bar counts as evidence.
+    assert.deepEqual(
+      gate({ exactEvidence: false, topSemanticScore: 0.5, topLexicalScore: 0.1, threshold: 0.5, lexicalThreshold: 0.5 }),
+      []
+    );
+    assert.deepEqual(
+      gate({ exactEvidence: false, topSemanticScore: 0, topLexicalScore: 0.5, threshold: 0.5, lexicalThreshold: 0.5 }),
+      []
+    );
+    // Omitting lexicalThreshold preserves pre-lexical-arm semantics: overlap cannot
+    // satisfy the gate on its own, so callers that predate the arm are unchanged.
+    assert.equal(
+      gated({ exactEvidence: false, topSemanticScore: 0.4, topLexicalScore: 1, threshold: 0.6 }),
+      true
+    );
+    // The lexical threshold is range-checked exactly like the semantic one.
+    assert.throws(
+      () => gate({ exactEvidence: false, topSemanticScore: 0.9, threshold: 0.5, lexicalThreshold: 2 }),
+      RangeError
+    );
+    // A refusal reports both arms so the caller can see which evidence was missing.
+    const refusal = gate({ exactEvidence: false, topSemanticScore: 0.31, topLexicalScore: 0.2, threshold: 0.5, lexicalThreshold: 0.5 })[0];
+    assert.match(refusal.content, /Semantic: 0\.310 \(needs 0\.500\)/);
+    assert.match(refusal.content, /Lexical: 0\.200 \(needs 0\.500\)/);
+
+    // The shipped defaults are the calibrated pair; drift here is a silent recall change.
+    const gateRoot = path.join(tempRoot, "gate-defaults");
+    fs.mkdirSync(gateRoot, { recursive: true });
+    writeJson(path.join(gateRoot, ".antigravityrc.json"), {});
+    const gateDefaults = loadMemoryConfig(gateRoot);
+    assert.equal(gateDefaults.disambiguationThreshold, 0.5);
+    assert.equal(gateDefaults.lexicalEvidenceThreshold, 0.7);
+    // And the new field is validated, not silently coerced.
+    writeJson(path.join(gateRoot, ".antigravityrc.json"), { lexicalEvidenceThreshold: 4 });
+    assert.throws(() => loadMemoryConfig(gateRoot), /lexicalEvidenceThreshold must be a finite number/);
+
+    // The FTS match builder and the lexical scorer must agree on what a term is.
+    // When they disagreed, a content-free query still produced FTS hits on function
+    // words, which satisfied the gate's lexical anchor and let the semantic arm
+    // vouch for gibberish on its own.
+    assert.deepEqual(tokenizeQuery("of in on at by"), []);
+    // Coverage is a ratio, so one surviving term scores 1.0 and admits the query on
+    // the lexical arm alone. "without" was missing from the stop-word class, was the
+    // only token to survive this query, and let seven content-free queries through
+    // the gate on a development split. A missing function word is a gate defect.
+    assert.deepEqual(tokenizeQuery("to from with without the and or but"), []);
+    assert.deepEqual(tokenizeQuery("although within upon whereas"), []);
+    assert.deepEqual(tokenizeQuery("the the the"), []);
+    assert.deepEqual(tokenizeQuery("how to change a car tire"), ["change", "car", "tire"]);
+    assert.deepEqual(tokenizeQuery("FTS5, lexical-search"), ["fts5", "lexical", "search"]);
+
+    // Coverage is the fraction of query terms found, independent of the field
+    // weights used for ranking. A single symbol hit must not look like broad
+    // coverage: it drove the weighted score to 0.75 on a two-term query and let
+    // out-of-domain text clear the lexical bar.
+    const scorer = new LexicalScorer();
+    const oneOfThree = scorer.scoreText("change car tire", "c1", "nothing relevant here", "hasChanged");
+    assert.ok(oneOfThree, "expected a symbol hit");
+    assert.equal(oneOfThree!.coverage, 1 / 3);
+    assert.ok(oneOfThree!.score > oneOfThree!.coverage, "weighted score still emphasises symbols");
+    assert.ok(oneOfThree!.coverage < gateDefaults.lexicalEvidenceThreshold);
+
+    // Body text matches at word starts, so a short term cannot harvest matches from
+    // inside unrelated words - but compound identifiers are still split into parts.
+    assert.equal(scorer.scoreText("tire", "c2", "the entire file was rewritten"), null);
+    assert.equal(scorer.scoreText("card", "c3", "discard the buffer"), null);
+    assert.ok(scorer.scoreText("file bytes", "c4", "const maxFileBytes = 1;")?.coverage === 1);
+    assert.ok(scorer.scoreText("retriev", "c5", "see the HybridRetriever class")?.coverage === 1);
 
     const db = new MemoryDatabase(path.join(tempRoot, "database", "memory.db"));
     const now = Date.now();
