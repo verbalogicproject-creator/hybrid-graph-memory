@@ -1,0 +1,58 @@
+{
+  "setId": "hand-authored-calibration-2026-08-29",
+  "provenance": "AUTHORED BY THE TUNER AFTER READING THE CORPUS. This set is NOT held out. The in-domain queries were written with knowledge of what the index contains, which inflates their lexical coverage relative to queries written blind. It is retained only so the bands quoted in README.md and src/core/config.ts are reproducible, and it must not be used to support a demonstrated claim. See ../vector-topology-primitives/canonical/CLAIMS.md row C11.",
+  "corpus": "this repository, indexed at the recorded commit",
+  "embedder": "embeddinggemma-300m-q4",
+  "classes": {
+    "in_domain": {
+      "answerable": true,
+      "queries": [
+        "transaction boundary",
+        "how does the disambiguation gate work",
+        "admission status quarantined",
+        "reciprocal rank fusion",
+        "FTS5 lexical search",
+        "cosine similarity provider",
+        "namespace federation admission",
+        "ULTRA model checksum verification",
+        "MCP mutation mode denial",
+        "config validation fails closed",
+        "chunker markdown headings",
+        "graph expansion provenance filter",
+        "atomic index commit",
+        "relation origin observed_ast",
+        "embedding provider fallback",
+        "web dashboard loopback bind"
+      ]
+    },
+    "out_of_domain": {
+      "answerable": false,
+      "queries": [
+        "how do I bake sourdough bread",
+        "best hiking trails in Patagonia",
+        "symptoms of vitamin D deficiency",
+        "history of the Ottoman Empire",
+        "how to change a car tire",
+        "stock market dividend yield",
+        "rules of cricket batting",
+        "watercolor painting techniques",
+        "what is the capital of Peru",
+        "recipe for chicken curry",
+        "how to train a puppy",
+        "best noise cancelling headphones"
+      ]
+    },
+    "content_free": {
+      "answerable": false,
+      "queries": [
+        "^^^",
+        "@#$%^&*()",
+        "aaaaaaaaaaaaaaaa",
+        "zzz zzz zzz",
+        "of in on at by",
+        "the the the the",
+        "qwertyuiop asdfghjkl"
+      ]
+    }
+  }
+}

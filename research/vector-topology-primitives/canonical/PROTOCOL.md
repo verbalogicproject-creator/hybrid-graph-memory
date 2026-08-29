@@ -93,6 +93,12 @@ comparisons at familywise alpha 0.05. Publish raw per-query and per-seed deltas.
 If a superiority CI upper bound is <=0, the stated direction is refuted on this
 test. Every other failure to confirm is “not demonstrated,” not proof of equality.
 
+The candidate gate's false-accept and false-reject rates are computed by
+`evaluate.ts` and reported, but no hypothesis above decides on them: they are
+descriptive output, not a confirmatory endpoint. A gate threshold tuned to make
+those numbers look good is therefore unfalsifiable under this protocol as written.
+This is a known gap, tracked as C11.
+
 `evaluate.ts` currently instantiates only H1--H3 and therefore requires candidate
 B4 and the exact B0/B2/B6 baseline roster in confirmatory mode. It cannot issue an
 H4, H5, H6, whole-protocol, mathematical, or physics verdict. Those hypotheses

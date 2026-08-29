@@ -12,6 +12,7 @@
 | C8 | Motion/parallax reveals an extra spatial dimension in this system. | Speculative hypothesis | Unsupported; excluded from inference | Separate temporal multi-view dataset and preregistered predictive test. |
 | C9 | Maggie Miller's 4-manifold research establishes a relativity/retrieval bridge. | Association | Unsupported | Primary sources plus a precise logical/model bridge; dimensional vocabulary is insufficient. |
 | C10 | Boundary-of-boundary equals zero. | Standard theorem | True only for a defined chain complex | Construct the actual chain groups and boundary maps; this identity alone says nothing about semantic completeness. |
+| C11 | The disambiguation gate admits answerable queries and refuses unanswerable ones. | Empirical hypothesis | Not demonstrated; thresholds calibrated on a set authored by the tuner | Confirmatory H7 in `PROTOCOL.md`. |
 
 ## Language policy
 
