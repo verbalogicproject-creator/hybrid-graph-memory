@@ -16,6 +16,7 @@
     "research/disambiguation-gate/h7_pool.json",
     "research/disambiguation-gate/h7_pool_attempt2.json",
     "research/disambiguation-gate/h7_test_result.json",
+    "research/disambiguation-gate/h7_test_result_attempt2.json",
     "research/embedder-quantization/ab_result.json",
     "research/vector-topology-primitives/legacy",
     "ultra-50g.md",

@@ -1,0 +1,78 @@
+{
+  "poolId": "h7-mechanical-20260830",
+  "split": "test",
+  "gitCommit": "9fad14ce8295e035c03781bf0e5a99d3e5d575a6",
+  "baselineCommit": "984fa09bb5c3bc30d7b5cda05a5f6d9b437c18e8",
+  "thresholds": {
+    "disambiguationThreshold": 0.32,
+    "lexicalEvidenceThreshold": 0.7
+  },
+  "counts": {
+    "total": 136,
+    "answerable": 32,
+    "negative": 104
+  },
+  "falseAccept": {
+    "rate": 0,
+    "lower": 0,
+    "upper": 0.03562135438857494,
+    "bound": {
+      "rate": 0.05,
+      "upper": 0.1
+    },
+    "pass": true
+  },
+  "falseReject": {
+    "rate": 0,
+    "lower": 0,
+    "upper": 0.10717919829998272,
+    "bound": {
+      "rate": 0.1,
+      "upper": 0.2
+    },
+    "pass": true
+  },
+  "bySource": [
+    {
+      "source": "markdown_heading",
+      "n": 20,
+      "errors": 0,
+      "errorRate": 0
+    },
+    {
+      "source": "commit_subject",
+      "n": 6,
+      "errors": 0,
+      "errorRate": 0
+    },
+    {
+      "source": "doc_comment",
+      "n": 6,
+      "errors": 0,
+      "errorRate": 0
+    },
+    {
+      "source": "off_topic",
+      "n": 51,
+      "errors": 0,
+      "errorRate": 0
+    },
+    {
+      "source": "content_free",
+      "n": 53,
+      "errors": 0,
+      "errorRate": 0
+    }
+  ],
+  "decision": "H7_confirmed",
+  "errors": [],
+  "attempt": 2,
+  "corpus": {
+    "repository": "hybrid-graph-memory",
+    "embedder": "embeddinggemma-300m-q8 (complete conversion, dense_2/dense_3 present)",
+    "promptFormat": "EmbeddingGemma prefixes: 'task: search result | query: ' / 'title: none | text: '",
+    "chunks": 384,
+    "configFrozenAt": "52195e0ccffff64a7c84a82cefd37135c182cc2f",
+    "note": "Attempt 2, run once against the salted-seed split declared in PROTOCOL.md 'Attempts after the first'. Supersedes attempt 1, which evaluated the defective Q4_0 conversion without prompt prefixes. The answerable test split overlaps attempt 1's by 12 of 32; the rule does not require disjoint splits and none is claimed. Evaluator fixed since attempt 1 so an empty result set is no longer scored as an acceptance."
+  }
+}
