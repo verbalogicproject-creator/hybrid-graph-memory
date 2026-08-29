@@ -211,9 +211,16 @@ producing signal, out-of-domain 0.250–0.667 with seven of twelve producing non
 and no content-free query producing any signal at all. Coverage is quantized by
 query length, so the 0.7 bar reads as "every term of a two- or three-term query, or
 three quarters of a four-term one" and sits in the gap rather than on an observed
-value. That sample separated completely at 0.5/0.7 — 16/16 answered, 12/12 and 7/7
-refused. Retrieval *quality* remains unevaluated — see
-`research/vector-topology-primitives/canonical/PROTOCOL.md`.
+value. That sample separated completely at 0.5/0.7.
+
+The gate's resulting behaviour — not its retrieval quality — was then evaluated
+against a preregistered rule, H7, on a held-out split of 127 queries the tuner did
+not author: 0 false accepts of 96 negatives and 0 false rejects of 31 answerable
+queries, confirming H7 on this corpus with this embedder. Retrieval *quality*
+remains unevaluated, and H7 is not evidence for it. See
+`research/disambiguation-gate/` for the run and
+`research/vector-topology-primitives/canonical/{CLAIMS.md,PROTOCOL.md}` for claim
+C11 and the decision rule.
 
 Optional reranking validates returned indices, rejects duplicates and non-finite
 scores, preserves the unreranked tail, and deterministically falls back to the
