@@ -80,7 +80,15 @@ export class LocalLlamaEmbeddingProvider implements EmbeddingProvider {
     try {
       // Guard against empty string (causes HTTP 500 on llama.cpp tokenization)
       const cleanText = text && text.trim().length > 0 ? text.trim() : "empty";
-      // Truncate overly long text payloads to fit safely within llama.cpp 512 token physical batch size (~1200 chars)
+      // 1200 characters is roughly 300 tokens. It was chosen to fit llama.cpp's
+      // 512-token physical batch, which no longer binds: the server now runs
+      // -b 2048 -ub 2048 against a 2048-token trained context, verified by
+      // embedding a 1604-token input that previously returned HTTP 500.
+      //
+      // The limit is kept because raising it is not free. It would change every
+      // document embedding, so it costs a re-index, a threshold recalibration, and
+      // a fresh H7 attempt under a new split. Worth doing deliberately; not worth
+      // doing as a side effect of a server flag.
       // Truncate first, then prefix: applying the prefix before the cut would let
       // it displace ~20 characters of real content, and the measured effect above
       // was obtained with the content held constant across prefixed and bare runs.
