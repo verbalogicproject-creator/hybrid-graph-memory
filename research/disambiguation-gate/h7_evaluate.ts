@@ -57,7 +57,14 @@ async function main() {
     const gate = (engine as any).retriever?.lastSearchStats?.gate;
     observations.push({
       ...query,
-      accepted: !(results.length === 1 && results[0].id === "DISAMBIGUATION_REQUIRED"),
+      // An empty result set is not an acceptance. The gate has three outcomes,
+      // not two: substantive results, an explicit disambiguation request, or
+      // nothing clearing minSimilarityThreshold. Treating the third as an
+      // acceptance inflates false accepts and, worse, hides false rejects --
+      // an answerable query that returns nothing was scored as answered.
+      accepted:
+        results.length > 0 &&
+        !(results.length === 1 && results[0].id === "DISAMBIGUATION_REQUIRED"),
       semantic: gate?.topSemanticScore,
       coverage: gate?.topLexicalScore,
     });

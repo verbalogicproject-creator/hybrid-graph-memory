@@ -32,7 +32,6 @@
         "best hiking trails in Patagonia",
         "symptoms of vitamin D deficiency",
         "history of the Ottoman Empire",
-        "how to change a car tire",
         "stock market dividend yield",
         "rules of cricket batting",
         "watercolor painting techniques",
@@ -40,7 +39,13 @@
         "recipe for chicken curry",
         "how to train a puppy",
         "best noise cancelling headphones"
-      ]
+      ],
+      "retired": {
+        "queries": [
+          "how to change a car tire"
+        ],
+        "reason": "Retired 2026-08-29. tests/production_regressions.ts asserts tokenizeQuery on this exact sentence, and src/retrieval/lexical.ts discusses \"tire\" in a comment, so the repository's own source now contains the query text. It is no longer unanswerable on this corpus and the gate was right to answer it. The general rule: a self-indexing repository cannot use text that appears in its own indexed source as a negative, and the same trap took research/disambiguation-gate/generate_queries.ts -- the negative vocabulary generator -- which is now in excludedPathPrefixes. This is an argument for C11's existing promotion rule, which requires replication on a second corpus."
+      }
     },
     "content_free": {
       "answerable": false,

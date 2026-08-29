@@ -12,6 +12,7 @@
     "implementation-roadmap.md",
     "killer-features.md",
     "research/disambiguation-gate/calibration_queries.json",
+    "research/disambiguation-gate/generate_queries.ts",
     "research/disambiguation-gate/h7_pool.json",
     "research/disambiguation-gate/h7_test_result.json",
     "research/embedder-quantization/ab_result.json",
