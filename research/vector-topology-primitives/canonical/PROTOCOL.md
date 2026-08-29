@@ -93,11 +93,72 @@ comparisons at familywise alpha 0.05. Publish raw per-query and per-seed deltas.
 If a superiority CI upper bound is <=0, the stated direction is refuted on this
 test. Every other failure to confirm is “not demonstrated,” not proof of equality.
 
-The candidate gate's false-accept and false-reject rates are computed by
-`evaluate.ts` and reported, but no hypothesis above decides on them: they are
-descriptive output, not a confirmatory endpoint. A gate threshold tuned to make
-those numbers look good is therefore unfalsifiable under this protocol as written.
-This is a known gap, tracked as C11.
+## H7: the disambiguation gate
+
+The candidate gate's false-accept and false-reject rates were previously computed
+by `evaluate.ts` and reported without any hypothesis deciding on them, which left a
+threshold tuned to flatter those numbers unfalsifiable. H7 closes that gap. It is
+declared here in full before the test split is generated or run, and it governs
+claim C11.
+
+### Query classes
+
+Queries carry a binary answerability label, not graded relevance, so H7 does not
+require the relevance assessors that H1--H6 require. It does still require that the
+queries not be authored by whoever tunes the thresholds.
+
+- `answerable`: derived mechanically from repository artifacts, never composed for
+  this evaluation. Declared sources, with the share of the class each contributes:
+  markdown headings (verbatim phrasing, the easy case), Git commit subject lines
+  (prose written by the repository's authors, frequently without symbol names, the
+  paraphrase case the adversarial suite calls for), and the first sentence of
+  documentation comments (the intermediate case).
+- `off_topic`: unanswerable. Generated combinatorially from a question-template
+  list and an everyday-domain vocabulary, both fixed in advance, so that individual
+  queries are not selected one by one.
+- `content_free`: unanswerable. Generated programmatically from a declared seed —
+  punctuation runs, repeated characters, stop-word-only sequences, and random
+  consonant strings.
+
+### Split and freeze
+
+The generated pool is split by a deterministic rule declared before generation:
+SHA-256 of the query string, first byte even to development and odd to test.
+Thresholds may be tuned on development only. The test split is run exactly once.
+
+If the test split fails a bound, the recorded outcome is "not demonstrated." The
+thresholds may not then be re-tuned and the same test split re-run; a subsequent
+attempt requires a newly generated test split under a new seed.
+
+### Decision rule
+
+Let false accept be a negative query the gate answered and false reject be an
+answerable query the gate refused. Report the 95% Wilson score interval for each.
+
+- H7a (safety): false-accept rate on the pooled negative test split <= 0.05, with
+  the Wilson upper bound <= 0.10.
+- H7b (utility): false-reject rate on the answerable test split <= 0.10, with the
+  Wilson upper bound <= 0.20.
+
+Confirm H7 only if H7a and H7b both hold. Report the `off_topic` and
+`content_free` rates separately as descriptive output; the H7a decision uses the
+pooled negatives, as declared here, and is not re-cut by sub-class after the fact.
+If a rate's Wilson lower bound exceeds its bound, the stated direction is refuted
+on this test rather than merely not demonstrated.
+
+### Declared weakness
+
+The protocol requires assessors blinded to method. That is unavailable when the
+same agent tunes the thresholds and runs the evaluation, so H7 substitutes a
+procedural control: bounds and split rule fixed in advance, queries not authored by
+the tuner, development-only tuning, and a single test run recorded whatever its
+outcome. This is weaker than blinding and does not make H7 a substitute for the
+assessor-graded hypotheses. Answerability labels are assigned by source rather than
+verified per query: a commit subject describing since-removed code is labelled
+answerable although it is not, which inflates the false-reject rate and therefore
+biases against confirmation.
+
+
 
 `evaluate.ts` currently instantiates only H1--H3 and therefore requires candidate
 B4 and the exact B0/B2/B6 baseline roster in confirmatory mode. It cannot issue an
