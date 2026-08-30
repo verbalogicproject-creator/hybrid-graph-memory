@@ -86,6 +86,13 @@ export class MemoryDatabase {
     this.db.exec("PRAGMA foreign_keys = ON;");
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec("PRAGMA synchronous = NORMAL;");
+    // WAL lets readers run during a write, but it does not make writers wait for
+    // each other: a second writer meeting a held lock gets SQLITE_BUSY immediately
+    // and throws. Indexing commits the whole update as one transaction, so that
+    // window is as long as the commit, and the MCP server updates access telemetry
+    // on every read -- a search issued mid-index is exactly the collision this
+    // avoids. 5s is a wait bound, not a delay; an uncontended lock is unaffected.
+    this.db.exec("PRAGMA busy_timeout = 5000;");
 
     // 1. Files table
     this.db.exec(`
