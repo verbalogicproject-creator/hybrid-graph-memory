@@ -14,6 +14,10 @@ export interface MemoryConfig {
   };
   local: {
     embedderUrl: string;
+    /** Alias the embedder serves under. Must track the served model: a change of
+     *  model without a change of name defeats the stored-vector guard in
+     *  HybridRetriever, which compares this string against `chunks.embedding_model`. */
+    embedderModel: string;
     rerankerUrl: string;
     generatorUrl: string;
     generatorModels: string[];
@@ -187,6 +191,8 @@ export function loadMemoryConfig(startDir = process.cwd()): MemoryConfig {
     local: {
       embedderUrl:
         loopbackUrl(local.embedderUrl, "local.embedderUrl") ?? "http://127.0.0.1:8145/v1/embeddings",
+      embedderModel:
+        nonblankString(local.embedderModel, "local.embedderModel") ?? "embeddinggemma-300m-q8",
       rerankerUrl:
         loopbackUrl(local.rerankerUrl, "local.rerankerUrl") ?? "http://127.0.0.1:8144/v1/rerank",
       generatorUrl:
@@ -249,18 +255,37 @@ export function loadMemoryConfig(startDir = process.cwd()): MemoryConfig {
     defaultResultLimit: finiteNumber(parsed.defaultResultLimit, "defaultResultLimit", 1, 1_000) ?? 6,
     rrfConstant: finiteNumber(parsed.rrfConstant, "rrfConstant", 1, 10_000) ?? 60,
     halfLifeDays: finiteNumber(parsed.halfLifeDays, "halfLifeDays", 0.01, 36_500) ?? 14,
-    // Gate defaults calibrated 2026-08-29 against this repository's own corpus with
-    // embeddinggemma-300m-q4 (16 in-domain, 12 out-of-domain, 7 content-free queries).
-    // Observed semantic: in-domain 0.458-0.627 vs out-of-domain 0.375-0.434 - adjacent,
-    // separated by only 0.024, so cosine is not load-bearing on its own. Observed
-    // lexical coverage: in-domain 0.667-1.000 (16/16 had signal) vs out-of-domain
-    // 0.250-0.667 (7/12 had none) vs content-free 0/7 with any signal at all.
-    // Coverage is quantized by query length, so 0.7 reads as "every term of a two- or
-    // three-term query, or three quarters of a four-term one" - it sits in the gap
-    // rather than on an observed value. The two in-domain queries at 0.667 still pass,
-    // via the semantic arm. This is a calibrated default, not a held-out evaluation
-    // result - see research/.../PROTOCOL.md before claiming more.
-    disambiguationThreshold: finiteNumber(parsed.disambiguationThreshold, "disambiguationThreshold", -1, 1) ?? 0.5,
+    // Gate defaults recalibrated 2026-08-29 for the complete embeddinggemma-300m-q8
+    // with EmbeddingGemma's prompt prefixes. The previous 0.5 was calibrated against
+    // the defective Q4_0 conversion, whose unprojected output put in-domain at
+    // 0.458-0.627; the projected space runs lower and 0.5 no longer separates.
+    //
+    // Measured on the H7 attempt-2 DEVELOPMENT split (34 answerable, 96 negative),
+    // which is the only split tuning may use:
+    //
+    //   answerable                          semantic 0.378-0.684
+    //   off-topic, WITH a lexical anchor    semantic 0.250-0.261   (5 of 43)
+    //   content-free                        semantic 0.261-0.419, no anchor at all
+    //
+    // 0.32 sits near the middle of the only separating gap, (0.261, 0.378): 0.059
+    // above the highest anchored negative and 0.058 below the lowest answerable.
+    //
+    // Note what this does NOT clear. Content-free input reaches 0.419, above the
+    // lowest answerable query, so no semantic threshold can both admit answerable
+    // queries and refuse gibberish. Content-free is held out entirely by the
+    // requirement that the semantic arm have a lexical anchor before it may vouch.
+    // That requirement is load-bearing, not defence in depth; weakening it reopens
+    // the gate to gibberish at any threshold.
+    //
+    // lexicalEvidenceThreshold stays 0.7. Coverage is unchanged by the embedder swap
+    // and still separates: in-domain 0.667-1.000 against out-of-domain 0.250-0.500.
+    // It is quantized by query length, so 0.7 reads as "every term of a two- or
+    // three-term query, or three quarters of a four-term one" and sits in a gap
+    // rather than on an observed value.
+    //
+    // Calibrated defaults, not a held-out result. The test split had not been run
+    // when these were frozen -- see research/.../PROTOCOL.md before claiming more.
+    disambiguationThreshold: finiteNumber(parsed.disambiguationThreshold, "disambiguationThreshold", -1, 1) ?? 0.32,
     lexicalEvidenceThreshold: finiteNumber(parsed.lexicalEvidenceThreshold, "lexicalEvidenceThreshold", -1, 1) ?? 0.7,
     minSimilarityThreshold: finiteNumber(parsed.minSimilarityThreshold, "minSimilarityThreshold", -1, 1) ?? 0.25,
     maxFileBytes: finiteNumber(parsed.maxFileBytes, "maxFileBytes", 1, 1024 ** 3) ?? 2 * 1024 * 1024,

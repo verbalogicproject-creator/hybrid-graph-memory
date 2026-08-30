@@ -169,7 +169,10 @@ async function main() {
     fs.mkdirSync(gateRoot, { recursive: true });
     writeJson(path.join(gateRoot, ".antigravityrc.json"), {});
     const gateDefaults = loadMemoryConfig(gateRoot);
-    assert.equal(gateDefaults.disambiguationThreshold, 0.5);
+    // Recalibrated 2026-08-29 for the complete embeddinggemma-300m-q8 with prompt
+    // prefixes; 0.5 belonged to the defective Q4_0 conversion's unprojected space.
+    // The reasoning and the measured bands are in src/core/config.ts.
+    assert.equal(gateDefaults.disambiguationThreshold, 0.32);
     assert.equal(gateDefaults.lexicalEvidenceThreshold, 0.7);
     // And the new field is validated, not silently coerced.
     writeJson(path.join(gateRoot, ".antigravityrc.json"), { lexicalEvidenceThreshold: 4 });

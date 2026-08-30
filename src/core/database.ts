@@ -479,6 +479,26 @@ export class MemoryDatabase {
     return stmt.all() as any[];
   }
 
+  /**
+   * Distinct embedding models present in the chunk table, for a scope.
+   *
+   * The unchanged-file check in MemoryEngine keys on content hash and mtime, so a
+   * change of embedder leaves every stored vector untouched while the active model
+   * moves on. Retrieval then fails closed via EmbeddingSpaceMismatchError, which is
+   * correct but unhelpful: the fix is a re-embed, and a plain re-index would not
+   * perform one. This lets indexing notice the space has moved.
+   */
+  getEmbeddingModelsInScope(workspace: string, project: string): string[] {
+    const stmt = this.db.prepare(`
+      SELECT DISTINCT embedding_model AS model
+      FROM chunks
+      WHERE workspace = ? AND project = ?
+    `);
+    return (stmt.all(workspace, project) as any[])
+      .map((row) => row.model)
+      .filter((model): model is string => typeof model === "string" && model.length > 0);
+  }
+
   deleteFile(fileId: string) {
     if (this.hasFTS5) {
       const getChunks = this.db.prepare("SELECT id FROM chunks WHERE file_id = ?");

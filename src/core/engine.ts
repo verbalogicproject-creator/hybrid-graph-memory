@@ -80,7 +80,7 @@ export class MemoryEngine {
       if (mode === "local") {
         const local = new LocalLlamaEmbeddingProvider(
           this.config.local.embedderUrl,
-          "embeddinggemma-300m-q4",
+          this.config.local.embedderModel,
           this.config.local.dimensions
         );
         const ok = await local.checkHealth();
@@ -108,7 +108,7 @@ export class MemoryEngine {
         // mode === "auto"
         const local = new LocalLlamaEmbeddingProvider(
           this.config.local.embedderUrl,
-          "embeddinggemma-300m-q4",
+          this.config.local.embedderModel,
           this.config.local.dimensions
         );
         const ok = await local.checkHealth();
@@ -234,10 +234,28 @@ export class MemoryEngine {
       (dbFile) => !seenPathSet.has(dbFile.filepath)
     );
 
+    // A change of embedder invalidates every stored vector, but content hashes and
+    // mtimes are untouched by it, so the unchanged check below would skip the whole
+    // corpus and leave the index in the abandoned space. Detect that and re-embed.
+    const activeEmbeddingModel = this.embeddingProvider.modelName;
+    const storedEmbeddingModels = this.db.getEmbeddingModelsInScope(
+      this.config.workspace,
+      this.config.projectName
+    );
+    const embeddingSpaceChanged = storedEmbeddingModels.some(
+      (model) => model !== activeEmbeddingModel
+    );
+    if (embeddingSpaceChanged) {
+      console.warn(
+        `[memory] Embedding model changed (stored: ${storedEmbeddingModels.join(", ")} -> active: ${activeEmbeddingModel}). Re-embedding every file; content hashes alone cannot detect this.`
+      );
+    }
+
     const filesToProcess: typeof scannedFiles = [];
     for (const file of scannedFiles) {
       const existing = existingFileMap.get(file.filepath);
       if (
+        !embeddingSpaceChanged &&
         existing &&
         existing.contentHash === file.contentHash &&
         existing.mtime === file.mtime

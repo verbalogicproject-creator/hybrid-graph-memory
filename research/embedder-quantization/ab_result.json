@@ -1,0 +1,158 @@
+{
+  "kind": "diagnostic",
+  "disclaimer": "Exploratory. No preregistered hypothesis; decides nothing and may not be cited for a ledger row.",
+  "generatedAt": "2026-08-29T20:00:28.724Z",
+  "corpus": {
+    "repository": "hybrid-graph-memory",
+    "workspace": "default",
+    "project": "hybrid-graph-memory",
+    "chunks": 333,
+    "truncatedAtChars": 1200,
+    "note": "Stored chunk content is embedded verbatim. embedDocument()'s optional 'source: | symbol: | context:' header is not reconstructed, so the 'current' cell is production's text for chunks indexed without that header and a close floor for the rest."
+  },
+  "endpoints": [
+    {
+      "arm": "q4",
+      "alias": "embeddinggemma-300m-q4",
+      "ftype": "Q4_0",
+      "dim": 768,
+      "params": 302863104,
+      "url": "http://127.0.0.1:8145/v1/embeddings"
+    },
+    {
+      "arm": "q8",
+      "alias": "embeddinggemma-300m-q8",
+      "ftype": "Q8_0",
+      "dim": 768,
+      "params": 307581696,
+      "url": "http://127.0.0.1:8146/v1/embeddings"
+    }
+  ],
+  "armsAreSameModel": false,
+  "queries": {
+    "source": "research/disambiguation-gate/calibration_queries.json",
+    "n": 35
+  },
+  "perChunkAgreement": {
+    "current": {
+      "n": 333,
+      "min": -0.109161,
+      "p5": -0.074832,
+      "median": -0.022986
+    },
+    "prefixed": {
+      "n": 333,
+      "min": -0.100666,
+      "p5": -0.073529,
+      "median": -0.019754
+    }
+  },
+  "rankAgreement": {
+    "current": {
+      "topK": 10,
+      "jaccard": {
+        "median": 0.3333,
+        "min": 0.1111
+      },
+      "kendallTauB": {
+        "median": 0.08,
+        "min": -0.6,
+        "undefinedCount": 0
+      }
+    },
+    "prefixed": {
+      "topK": 10,
+      "jaccard": {
+        "median": 0.4286,
+        "min": 0.1111
+      },
+      "kendallTauB": {
+        "median": 0.0952,
+        "min": -0.584,
+        "undefinedCount": 0
+      }
+    }
+  },
+  "margins": {
+    "q4:current": {
+      "bands": {
+        "in_domain": {
+          "min": 0.4581,
+          "max": 0.6254,
+          "n": 16
+        },
+        "out_of_domain": {
+          "min": 0.3845,
+          "max": 0.4351,
+          "n": 12
+        },
+        "content_free": {
+          "min": 0.4452,
+          "max": 0.5512,
+          "n": 7
+        }
+      },
+      "inDomainMinusOutOfDomain": 0.023
+    },
+    "q4:prefixed": {
+      "bands": {
+        "in_domain": {
+          "min": 0.4053,
+          "max": 0.6027,
+          "n": 16
+        },
+        "out_of_domain": {
+          "min": 0.2341,
+          "max": 0.3335,
+          "n": 12
+        },
+        "content_free": {
+          "min": 0.3465,
+          "max": 0.4323,
+          "n": 7
+        }
+      },
+      "inDomainMinusOutOfDomain": 0.0718
+    },
+    "q8:current": {
+      "bands": {
+        "in_domain": {
+          "min": 0.3339,
+          "max": 0.5369,
+          "n": 16
+        },
+        "out_of_domain": {
+          "min": 0.2228,
+          "max": 0.3018,
+          "n": 12
+        },
+        "content_free": {
+          "min": 0.304,
+          "max": 0.3944,
+          "n": 7
+        }
+      },
+      "inDomainMinusOutOfDomain": 0.0321
+    },
+    "q8:prefixed": {
+      "bands": {
+        "in_domain": {
+          "min": 0.3081,
+          "max": 0.598,
+          "n": 16
+        },
+        "out_of_domain": {
+          "min": 0.063,
+          "max": 0.1849,
+          "n": 12
+        },
+        "content_free": {
+          "min": 0.2403,
+          "max": 0.3456,
+          "n": 7
+        }
+      },
+      "inDomainMinusOutOfDomain": 0.1232
+    }
+  }
+}

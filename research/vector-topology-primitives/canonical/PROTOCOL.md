@@ -130,6 +130,34 @@ If the test split fails a bound, the recorded outcome is "not demonstrated." The
 thresholds may not then be re-tuned and the same test split re-run; a subsequent
 attempt requires a newly generated test split under a new seed.
 
+### Attempts after the first (declared 2026-08-29, before the second attempt)
+
+An H7 result is scoped to the configuration that produced it. Any change to what
+the gate reads -- the thresholds, the embedding model or its prompt format, or the
+indexed corpus -- ends that result's applicability and begins a new attempt. The
+earlier result stands as recorded for its own configuration and is neither revised
+nor withdrawn.
+
+Each attempt declares a new seed, and the split rule for attempt *n* is
+
+```text
+SHA-256(seed || "|" || query), first byte even to development, odd to test.
+```
+
+The original unsalted rule reassigns only those queries a new seed happens to
+change. Answerable queries are extracted deterministically from a pinned commit,
+so they are identical across seeds and would keep their original split: the test
+set would be re-used while appearing to be fresh. Salting with the seed is what
+makes "a newly generated test split" true of the whole pool rather than of the
+generated negatives alone.
+
+A negative query whose text appears in the indexed corpus is not a negative. The
+corpus is this repository, so its own evaluation sources are indexable, and each
+attempt must exclude them before generating: `calibration_queries.json`,
+`h7_pool.json`, and `generate_queries.ts`, which holds the off-topic vocabulary.
+This is a limitation of evaluating a self-indexing repository against itself, and
+it is part of why C11 requires replication on a second corpus.
+
 ### Decision rule
 
 Let false accept be a negative query the gate answered and false reject be an

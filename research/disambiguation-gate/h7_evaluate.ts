@@ -44,7 +44,11 @@ async function main() {
     return;
   }
 
-  const pool = JSON.parse(fs.readFileSync(path.join(__dirname, "h7_pool.json"), "utf8"));
+  // Attempt 1's pool stays the default so its run remains reproducible; later
+  // attempts pass their own bundle explicitly.
+  const poolArgument = process.argv.indexOf("--pool");
+  const poolFile = poolArgument >= 0 ? process.argv[poolArgument + 1] : "h7_pool.json";
+  const pool = JSON.parse(fs.readFileSync(path.join(__dirname, poolFile), "utf8"));
   const queries: PoolQuery[] = pool.queries.filter((q: PoolQuery) => q.split === splitArgument);
   const config = loadMemoryConfig(path.resolve(__dirname, "../.."));
 
@@ -57,7 +61,14 @@ async function main() {
     const gate = (engine as any).retriever?.lastSearchStats?.gate;
     observations.push({
       ...query,
-      accepted: !(results.length === 1 && results[0].id === "DISAMBIGUATION_REQUIRED"),
+      // An empty result set is not an acceptance. The gate has three outcomes,
+      // not two: substantive results, an explicit disambiguation request, or
+      // nothing clearing minSimilarityThreshold. Treating the third as an
+      // acceptance inflates false accepts and, worse, hides false rejects --
+      // an answerable query that returns nothing was scored as answered.
+      accepted:
+        results.length > 0 &&
+        !(results.length === 1 && results[0].id === "DISAMBIGUATION_REQUIRED"),
       semantic: gate?.topSemanticScore,
       coverage: gate?.topLexicalScore,
     });

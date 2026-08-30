@@ -12,8 +12,12 @@
     "implementation-roadmap.md",
     "killer-features.md",
     "research/disambiguation-gate/calibration_queries.json",
+    "research/disambiguation-gate/generate_queries.ts",
     "research/disambiguation-gate/h7_pool.json",
+    "research/disambiguation-gate/h7_pool_attempt2.json",
     "research/disambiguation-gate/h7_test_result.json",
+    "research/disambiguation-gate/h7_test_result_attempt2.json",
+    "research/embedder-quantization/ab_result.json",
     "research/vector-topology-primitives/legacy",
     "ultra-50g.md",
     "upgrade-directions.md"

@@ -17,7 +17,14 @@ import { MemoryDatabase } from "../../src/core/database";
 import { loadMemoryConfig } from "../../src/core/config";
 
 const ROOT = path.resolve(__dirname, "../..");
-const SEED = 20260829;
+/**
+ * Attempt 2. Attempt 1 (seed 20260829) evaluated embeddinggemma-300m-q4 without
+ * prompt prefixes; that configuration is no longer served, which under
+ * PROTOCOL.md "Attempts after the first" ends its applicability and begins a new
+ * attempt. Its pool and result are kept alongside this one.
+ */
+const ATTEMPT = 2;
+const SEED = 20260830;
 /**
  * Answerable queries are extracted from the repository as it stood BEFORE any gate
  * work began. The tuner wrote commit subjects and doc comments during this session,
@@ -187,9 +194,17 @@ function contentFreeQueries(random: () => number, count: number): string[] {
   return [...out];
 }
 
-/** Declared split rule: SHA-256 of the query, first byte even -> dev, odd -> test. */
+/**
+ * Declared split rule for attempt n: SHA-256(seed || "|" || query), first byte
+ * even -> dev, odd -> test.
+ *
+ * The seed is part of the hashed material, not decoration. Answerable queries are
+ * extracted deterministically from a pinned commit, so they are byte-identical
+ * across seeds; hashing the query alone would hand attempt 2 the same test split
+ * attempt 1 already consumed, while the bundle truthfully reported a new seed.
+ */
 function splitOf(query: string): "dev" | "test" {
-  return crypto.createHash("sha256").update(query).digest()[0] % 2 === 0 ? "dev" : "test";
+  return crypto.createHash("sha256").update(`${SEED}|${query}`).digest()[0] % 2 === 0 ? "dev" : "test";
 }
 
 function main() {
@@ -221,7 +236,8 @@ function main() {
     gitCommit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: ROOT, encoding: "utf8" }).trim(),
     baselineCommit: BASELINE_COMMIT,
     indexedFileCount: files.length,
-    splitRule: "sha256(query)[0] % 2 === 0 ? dev : test",
+    attempt: ATTEMPT,
+    splitRule: "sha256(`${seed}|${query}`)[0] % 2 === 0 ? dev : test",
     samplingRule: "all available commit subjects and doc comments; markdown headings capped at their combined count",
     counts: {
       total: rows.length,
@@ -233,7 +249,7 @@ function main() {
     queries: rows,
   };
 
-  const outPath = path.join(__dirname, "h7_pool.json");
+  const outPath = path.join(__dirname, `h7_pool_attempt${ATTEMPT}.json`);
   fs.writeFileSync(outPath, JSON.stringify(bundle, null, 2) + "\n");
   console.log(JSON.stringify(bundle.counts, null, 2));
   const bySource: Record<string, number> = {};
