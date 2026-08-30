@@ -20,6 +20,7 @@
     "research/embedder-quantization/ab_result.json",
     "research/vector-topology-primitives/legacy",
     "ultra-50g.md",
-    "upgrade-directions.md"
+    "upgrade-directions.md",
+    "research/embedder-model-comparison/comparison_result.json"
   ]
 }
