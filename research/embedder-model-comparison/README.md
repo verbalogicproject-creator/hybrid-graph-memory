@@ -79,6 +79,39 @@ arm B = Qwen3 on `:8146` in `qwen3` format. Override with `--a-url`,
 `--a-alias`, `--a-format` and the `--b-*` equivalents; `--limit N` shortens the
 corpus for a smoke run.
 
+## Serving a non-Gemma model: pooling
+
+`embed-server.sh` used to hardcode `--pooling mean`. That is correct for
+EmbeddingGemma and wrong for almost anything else. Qwen3-Embedding declares
+`pooling_type = 3` (LAST) in its GGUF and is trained for it; served under mean
+pooling it emits output the model was never trained to produce.
+
+This is the **same class of error as the missing projection head** — a serving
+misconfiguration that produces plausible-looking vectors of the wrong thing.
+Had the tenant merely started, the comparison would have measured a crippled
+Qwen3 and likely concluded EmbeddingGemma wins. It was caught only because the
+server also ran out of memory and the log had to be read:
+
+```
+W llama_init_from_model: model default pooling_type is [3], but [1] was specified
+```
+
+`POOLING` is now a variable in `embed-server.sh`, defaulting to `mean` so the
+primary is unchanged. Setting it **empty** omits the flag and lets the GGUF's
+declared `pooling_type` win, which is the right default for an A/B tenant
+serving arbitrary models. `rag-loader.sh` passes `EMBED_ALT_POOLING` empty by
+default, written `${EMBED_ALT_POOLING-}` rather than `:-` so an explicitly empty
+value survives.
+
+Before trusting any run, confirm the warning above is **absent** from
+`server-embed-alt-rag.log`.
+
+The alt tenant also gets its own `EMBED_ALT_CTX` / `EMBED_ALT_BATCH` rather than
+inheriting the primary's. At the inherited `-b/-ub 2048`, Qwen3-0.6B (28 layers,
+n_embd 1024) asked for a 1578098688-byte OpenCL compute buffer and the server
+died with `failed to allocate compute pp buffers`. The alt default is 512, still
+far above what this harness sends (1200 chars, roughly 300 tokens).
+
 ## Guards
 
 - Refuses if both arms report the same alias, or the same `n_params` — that
